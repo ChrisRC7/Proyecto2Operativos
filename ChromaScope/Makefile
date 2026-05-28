@@ -1,25 +1,74 @@
-CC = mpicc
+CC = gcc
+MPICC = mpicc
+
 CFLAGS = -Wall -Wextra -Werror -std=c11 -O2
 
-TARGET = chromascope_mpi
+MPI_TARGET = chromascope_mpi
+IMAGE_TEST_TARGET = image_test
+CRYPTO_TEST_TARGET = crypto_test
 
-SRC = \
+MPI_SRC = \
 	Server/main_server.c \
 	Nodes/worker.c \
 	Nodes/resource_monitor.c
 
-OBJ = $(SRC:.c=.o)
+IMAGE_SRC = \
+	Image/ppm.c \
+	Image/histogram.c \
+	Image/image_test.c
 
-all: $(TARGET)
+CRYPTO_SRC = \
+	Crypto/chacha20.c \
+	Crypto/crypto_test.c
 
-$(TARGET): $(OBJ)
-	$(CC) $(CFLAGS) -o $(TARGET) $(OBJ)
+IMAGE_LIB_SRC = \
+	Image/ppm.c \
+	Image/histogram.c
 
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+CRYPTO_LIB_SRC = \
+	Crypto/chacha20.c
 
-run-local: $(TARGET)
-	mpirun -np 4 ./$(TARGET)
+IMAGE_OBJ = $(IMAGE_LIB_SRC:.c=.o)
+CRYPTO_OBJ = $(CRYPTO_LIB_SRC:.c=.o)
+
+.PHONY: all clean mpi image crypto test-image test-crypto run-local
+
+all: mpi image crypto
+
+mpi: $(MPI_TARGET)
+
+image: $(IMAGE_TEST_TARGET)
+
+crypto: $(CRYPTO_TEST_TARGET)
+
+$(MPI_TARGET): $(MPI_SRC)
+	$(MPICC) $(CFLAGS) -Iserver -Inodes -Iimage -Icrypto -o $@ $(MPI_SRC)
+
+$(IMAGE_TEST_TARGET): $(IMAGE_SRC)
+	$(CC) $(CFLAGS) -Iimage -o $@ $(IMAGE_SRC)
+
+$(CRYPTO_TEST_TARGET): $(CRYPTO_SRC)
+	$(CC) $(CFLAGS) -Icrypto -o $@ $(CRYPTO_SRC)
+
+run-local: $(MPI_TARGET)
+	mpirun -np 4 ./$(MPI_TARGET)
+
+test-image: $(IMAGE_TEST_TARGET)
+	./$(IMAGE_TEST_TARGET) test_image.ppm
+
+test-crypto: $(CRYPTO_TEST_TARGET)
+	./$(CRYPTO_TEST_TARGET)
 
 clean:
-	rm -f $(OBJ) $(TARGET)
+	rm -f $(MPI_TARGET)
+	rm -f $(IMAGE_TEST_TARGET)
+	rm -f $(CRYPTO_TEST_TARGET)
+	rm -f *.o
+	rm -f image/*.o
+	rm -f crypto/*.o
+	rm -f server/*.o
+	rm -f nodes/*.o
+	rm -f output_copy.ppm
+	rm -f output_gray.ppm
+	rm -f encrypted_output.bin
+	rm -f decrypted_output.ppm
