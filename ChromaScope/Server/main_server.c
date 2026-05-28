@@ -110,26 +110,21 @@ static void run_master(int world_size) {
         current_start_row += rows_for_worker;
     }
 
+    uint32_t master_partial_histogram[HIST_BINS];
     uint32_t global_histogram[HIST_BINS];
+
+    memset(master_partial_histogram, 0, sizeof(master_partial_histogram));
     memset(global_histogram, 0, sizeof(global_histogram));
 
-    for (int worker_rank = 1; worker_rank < world_size; worker_rank++) {
-        uint32_t partial_histogram[HIST_BINS];
+    MPI_Reduce(master_partial_histogram,
+            global_histogram,
+            HIST_BINS,
+            MPI_UINT32_T,
+            MPI_SUM,
+            MASTER_RANK,
+            MPI_COMM_WORLD);
 
-        MPI_Recv(partial_histogram,
-                 HIST_BINS,
-                 MPI_UINT32_T,
-                 worker_rank,
-                 TAG_HISTOGRAM,
-                 MPI_COMM_WORLD,
-                 MPI_STATUS_IGNORE);
-
-        printf("[Rank 0] Histograma parcial recibido desde Rank %d\n", worker_rank);
-
-        for (int i = 0; i < HIST_BINS; i++) {
-            global_histogram[i] += partial_histogram[i];
-        }
-    }
+    printf("[Rank 0] Histogramas consolidados mediante MPI_Reduce.\n");
 
     printf("\n[Rank 0] Histograma consolidado:\n");
     print_histogram(global_histogram, HIST_BINS);

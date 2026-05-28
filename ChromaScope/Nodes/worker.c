@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "../server/mpi_protocol.h"
+#include "../Server/mpi_protocol.h"
 #include "worker.h"
 #include "resource_monitor.h"
 
@@ -79,14 +79,18 @@ void run_worker(int rank) {
 
     printf("[Rank %d] Histograma parcial calculado.\n", rank);
 
-    MPI_Send(partial_histogram,
-             metadata.hist_bins,
-             MPI_UINT32_T,
-             MASTER_RANK,
-             TAG_HISTOGRAM,
-             MPI_COMM_WORLD);
+    uint32_t global_histogram[HIST_BINS];
+    memset(global_histogram, 0, sizeof(global_histogram));
 
-    printf("[Rank %d] Histograma parcial enviado al maestro.\n", rank);
+    MPI_Reduce(partial_histogram,
+            global_histogram,
+            metadata.hist_bins,
+            MPI_UINT32_T,
+            MPI_SUM,
+            MASTER_RANK,
+            MPI_COMM_WORLD);
+
+    printf("[Rank %d] Histograma parcial enviado mediante MPI_Reduce.\n", rank);
 
     free(strip_data);
 }

@@ -4,9 +4,9 @@ CFLAGS = -Wall -Wextra -Werror -std=c11 -O2
 TARGET = chromascope_mpi
 
 SRC = \
-	server/main_server.c \
-	nodes/worker.c \
-	nodes/resource_monitor.c
+	Server/main_server.c \
+	Nodes/worker.c \
+	Nodes/resource_monitor.c
 
 OBJ = $(SRC:.c=.o)
 
