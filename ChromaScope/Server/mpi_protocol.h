@@ -6,8 +6,7 @@
 
 #define MASTER_RANK 0
 
-#define EXPECTED_MPI_PROCESSES 4
-#define NUM_WORKERS 3
+#define MIN_MPI_PROCESSES 2
 
 #define CHANNELS_RGB 3
 #define HIST_BINS 36

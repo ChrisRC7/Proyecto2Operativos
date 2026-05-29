@@ -1,9 +1,11 @@
+#define _POSIX_C_SOURCE 200809L
 #include <mpi.h>
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "mpi_protocol.h"
 #include "../Nodes/worker.h"
@@ -24,13 +26,20 @@ int main(int argc, char **argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
-    if (world_size != EXPECTED_MPI_PROCESSES) {
+    char hostname[256];
+
+    if (gethostname(hostname, sizeof(hostname)) == 0) {
+        hostname[sizeof(hostname) - 1] = '\0';
+        printf("[Rank %d] Ejecutándose en host: %s\n", rank, hostname);
+    }
+
+    if (world_size < MIN_MPI_PROCESSES) {
         if (rank == MASTER_RANK) {
             fprintf(stderr,
-                    "Error: este programa debe ejecutarse con %d procesos MPI.\n",
-                    EXPECTED_MPI_PROCESSES);
-            fprintf(stderr, "Ejemplo:\n");
-            fprintf(stderr, "  mpirun -np 4 ./chromascope_mpi test_image.ppm\n");
+                    "Error: este programa debe ejecutarse con al menos %d procesos MPI.\n",
+                    MIN_MPI_PROCESSES);
+            fprintf(stderr, "Ejemplo local:\n");
+            fprintf(stderr, "  mpirun -np 2 ./chromascope_mpi test_image.ppm\n");
         }
 
         MPI_Finalize();
@@ -67,7 +76,9 @@ static void run_master(int world_size, const char *image_path) {
 
     printf("\n[Rank 0] Nodo maestro iniciado\n");
     printf("[Rank 0] Imagen PPM cargada: %dx%d RGB\n", image.width, image.height);
-    printf("[Rank 0] Total de workers: %d\n\n", NUM_WORKERS);
+    int num_workers = world_size - 1;
+
+    printf("[Rank 0] Total de workers: %d\n\n", num_workers);
 
     if (ppm_write_gray("cluster_output_gray.ppm", &image) != 0) {
         fprintf(stderr, "[Rank 0] Advertencia: no se pudo guardar imagen gris.\n");
@@ -97,8 +108,8 @@ static void run_master(int world_size, const char *image_path) {
 
     fill_test_key_nonce(session_key, base_nonce);
 
-    int base_rows = height / NUM_WORKERS;
-    int remaining_rows = height % NUM_WORKERS;
+    int base_rows = height / num_workers;
+    int remaining_rows = height % num_workers;
     int current_start_row = 0;
 
     for (int worker_rank = 1; worker_rank < world_size; worker_rank++) {
