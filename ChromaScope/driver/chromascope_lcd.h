@@ -33,9 +33,9 @@
 /*    RGB565: RRRRR GGGGGG BBBBB  (5-6-5 bits)                                */
 #define LCD_BLACK    ((__u16)0x0000)
 #define LCD_WHITE    ((__u16)0xFFFF)
-#define LCD_RED      ((__u16)0xF800)
+#define LCD_RED      ((__u16)0x001F)
 #define LCD_GREEN    ((__u16)0x07E0)
-#define LCD_BLUE     ((__u16)0x001F)
+#define LCD_BLUE     ((__u16)0xF800)
 #define LCD_YELLOW   ((__u16)0xFFE0)
 #define LCD_CYAN     ((__u16)0x07FF)
 #define LCD_MAGENTA  ((__u16)0xF81F)
