@@ -1,7 +1,4 @@
-# Makefile — driver/chromascope_gpio
-#
-# Compilar el módulo kernel y el programa de prueba userspace.
-# Ejecutar desde la propia Raspberry Pi con los headers instalados.
+# Makefile — ChromaScope/driver/
 #
 # Raspberry Pi 4 (BCM2711) — kernel 6.x
 #
@@ -9,52 +6,49 @@
 #   sudo apt install raspberrypi-kernel-headers
 #
 # Targets:
-#   make            → compila módulo + test_blink
-#   make module     → solo el módulo .ko
-#   make test       → solo el binario de prueba
-#   make clean      → limpia todos los artefactos
-#   make load       → insmod + verificación de /dev/chromascope
-#   make unload     → rmmod
-#   make run        → carga el módulo y ejecuta test_blink
-#   make dmesg      → muestra los últimos mensajes del kernel
+#   make         -> compila ambos modulos (.ko) + test_lcd
+#   make modules -> solo los modulos kernel
+#   make test    -> solo el binario de prueba userspace
+#   make clean   -> limpia todos los artefactos
+#   make load    -> insmod chromascope_lcd.ko + verifica /dev/chromascope
+#   make unload  -> rmmod chromascope_lcd
+#   make run     -> load + ejecutar test_lcd
+#   make dmesg   -> ultimos mensajes del kernel relativos a chromascope
 
 KDIR  ?= /lib/modules/$(shell uname -r)/build
 PWD   := $(shell pwd)
 
-# Objeto del módulo kernel
+# Modulos kernel
+obj-m += chromascope_lcd.o
 obj-m += chromascope_gpio.o
 
 # Programa de prueba userspace
-TEST_BIN := test_blink
-TEST_SRC := test_blink.c
+TEST_BIN := test_lcd
+TEST_SRC := test_lcd.c
 
 CC     := gcc
 CFLAGS := -Wall -Wextra -std=c11
 
-# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: all modules test clean load unload run dmesg
 
-.PHONY: all module test clean load unload run dmesg
+all: modules test
 
-all: module test
-
-module:
+modules:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
-test: $(TEST_SRC) chromascope_gpio.h
+test: $(TEST_SRC) chromascope_lcd.h
 	$(CC) $(CFLAGS) -o $(TEST_BIN) $(TEST_SRC)
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
 	rm -f $(TEST_BIN)
 
-# ─── Gestión del módulo ───────────────────────────────────────────────────────
-
-load: module
-	sudo insmod chromascope_gpio.ko
+load: modules
+	sudo insmod chromascope_lcd.ko
 	@ls -la /dev/chromascope && echo "[OK] /dev/chromascope creado"
 
 unload:
-	sudo rmmod chromascope_gpio
+	sudo rmmod chromascope_lcd
 	@echo "[OK] Driver descargado"
 
 run: load test
@@ -62,4 +56,3 @@ run: load test
 
 dmesg:
 	sudo dmesg | grep chromascope | tail -20
-
