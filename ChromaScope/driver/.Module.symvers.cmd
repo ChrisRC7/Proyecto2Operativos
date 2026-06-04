@@ -1,0 +1,1 @@
+savedcmd_/home/beto/Proyecto2Operativos/ChromaScope/driver/Module.symvers :=  scripts/mod/modpost -M -m -a      -o /home/beto/Proyecto2Operativos/ChromaScope/driver/Module.symvers -n -T /home/beto/Proyecto2Operativos/ChromaScope/driver/modules.order -i Module.symvers -e 

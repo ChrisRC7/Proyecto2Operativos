@@ -1,0 +1,1 @@
+savedcmd_/home/beto/Proyecto2Operativos/ChromaScope/driver/modules.order := {   echo /home/beto/Proyecto2Operativos/ChromaScope/driver/chromascope_gpio.o; :; } > /home/beto/Proyecto2Operativos/ChromaScope/driver/modules.order

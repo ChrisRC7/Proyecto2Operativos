@@ -1,0 +1,117 @@
+# =========================
+# Compilación C / C++
+# =========================
+
+*.o
+*.a
+*.so
+*.ko
+*.mod
+*.mod.c
+*.cmd
+*.symvers
+*.order
+
+# Ejecutables generados
+chromascope_mpi
+image_test
+crypto_test
+client_app
+server_app
+worker_app
+
+# Carpetas de build
+build/
+cmake-build-*/
+out/
+bin/
+obj/
+
+# Archivos generados por CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# OJO:
+# Si están usando Makefile propio en la raíz, NO ignoren Makefile.
+# En ese caso, borren la línea "Makefile" de arriba.
+
+
+# =========================
+# Salidas de image/
+# =========================
+
+output_copy.ppm
+output_gray.ppm
+cluster_output_gray.ppm
+cluster_decrypted.ppm
+
+# Cualquier salida PPM generada automáticamente
+*_gray.ppm
+*_copy.ppm
+*_decrypted.ppm
+*_encrypted.ppm
+
+
+# =========================
+# Salidas de crypto/
+# =========================
+
+encrypted_output.bin
+decrypted_output.ppm
+cluster_encrypted_pixels.bin
+
+*.enc
+*.encrypted
+*.cipher
+*.bin
+
+
+# =========================
+# Archivos temporales de pruebas
+# =========================
+
+test_output/
+logs/
+*.log
+*.tmp
+*.temp
+
+
+# =========================
+# Mantener imagen original de prueba
+# =========================
+
+!test_image.ppm
+!image/test_image.ppm
+!tests/test_image.ppm
+
+
+# =========================
+# VS Code / IDE
+# =========================
+
+.vscode/*
+!.vscode/c_cpp_properties.json
+!.vscode/settings.json
+!.vscode/tasks.json
+
+.idea/
+
+
+# =========================
+# Sistema operativo
+# =========================
+
+.DS_Store
+Thumbs.db
+
+
+# =========================
+# Valgrind / Sanitizers
+# =========================
+
+vgcore.*
+*.gcda
+*.gcno
+*.gcov
