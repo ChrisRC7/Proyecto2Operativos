@@ -6,7 +6,7 @@
  * Accede a los registros GPIO de la BCM2711 directamente con ioremap /
  * ioread32 / iowrite32, sin usar la capa pinctrl/gpiolib del kernel.
  *
- * Dispositivo: /dev/chromascope
+ * Dispositivo: /dev/chromascope_gpio
  * API: ver chromascope_gpio.h
  *
  * ChromaScope · CE 4303 Principios de Sistemas Operativos
@@ -22,12 +22,13 @@
 #include <linux/uaccess.h>
 #include <linux/io.h>
 #include <linux/err.h>
+#include <linux/delay.h>
 
 #include "chromascope_gpio.h"
 
 /* ── Nombres ─────────────────────────────────────────────────────────────── */
-#define DEVICE_NAME  "chromascope"
-#define CLASS_NAME   "chromascope"
+#define DEVICE_NAME  "chromascope_gpio"
+#define CLASS_NAME   "chromascope_gpio"
 
 /* ── Dirección física de los registros GPIO (BCM2711 — RPi 4) ───────────── */
 #define BCM2711_GPIO_BASE  0xFE200000U
@@ -92,6 +93,36 @@ static inline int gpio_pin_read(unsigned int pin)
     return (int)((ioread32(gpio_base + GPLEV0) >> pin) & 1U);
 }
 
+static int gpio_servo_move(unsigned int pin, int angle, int duration_ms)
+{
+    const unsigned int min_pulse_us = 1000U; /* 0° */
+    const unsigned int max_pulse_us = 2000U; /* 180° */
+    unsigned int pulse_us;
+    unsigned int cycles;
+
+    if (angle < 0 || angle > 180)
+        return -EINVAL;
+
+    if (duration_ms <= 0)
+        duration_ms = 500;
+
+    pulse_us = min_pulse_us + (unsigned int)angle * (max_pulse_us - min_pulse_us) / 180U;
+    cycles = (unsigned int)duration_ms / 20U;
+    if (cycles == 0U)
+        cycles = 1U;
+
+    gpio_set_function(pin, GPIO_FUNC_OUTPUT);
+
+    while (cycles--) {
+        gpio_pin_high(pin);
+        udelay(pulse_us);
+        gpio_pin_low(pin);
+        udelay(20000U - pulse_us);
+    }
+
+    return 0;
+}
+
 /* ── file_operations ─────────────────────────────────────────────────────── */
 
 static int chromascope_open(struct inode *inode, struct file *filp)
@@ -109,17 +140,27 @@ static long chromascope_ioctl(struct file *filp,
 {
     int pin;
     int val;
+    int ret;
 
     /* Verificar número mágico */
     if (_IOC_TYPE(cmd) != CHROMASCOPE_MAGIC)
         return -ENOTTY;
 
-    /* Todos los comandos reciben/devuelven un entero: leer primero */
-    if (copy_from_user(&pin, (int __user *)arg, sizeof(int)))
-        return -EFAULT;
+    switch (cmd) {
+    case IOCTL_GPIO_SET_OUTPUT:
+    case IOCTL_GPIO_SET_INPUT:
+    case IOCTL_GPIO_SET_HIGH:
+    case IOCTL_GPIO_SET_LOW:
+    case IOCTL_GPIO_READ:
+        if (copy_from_user(&pin, (int __user *)arg, sizeof(int)))
+            return -EFAULT;
 
-    if ((unsigned int)pin > GPIO_PIN_MAX)
-        return -EINVAL;
+        if ((unsigned int)pin > GPIO_PIN_MAX)
+            return -EINVAL;
+        break;
+    default:
+        break;
+    }
 
     switch (cmd) {
     case IOCTL_GPIO_SET_OUTPUT:
@@ -148,6 +189,27 @@ static long chromascope_ioctl(struct file *filp,
             return -EFAULT;
         pr_debug("chromascope: GPIO %d = %d\n", pin, val);
         break;
+
+    case IOCTL_GPIO_SET_SERVO_ANGLE: {
+        struct gpio_cmd_servo servo_cmd;
+
+        if (copy_from_user(&servo_cmd, (struct gpio_cmd_servo __user *)arg,
+                           sizeof(servo_cmd)))
+            return -EFAULT;
+
+        if ((unsigned int)servo_cmd.pin > GPIO_PIN_MAX)
+            return -EINVAL;
+
+        ret = gpio_servo_move((unsigned int)servo_cmd.pin,
+                              servo_cmd.angle,
+                              servo_cmd.duration_ms);
+        if (ret < 0)
+            return ret;
+
+        pr_debug("chromascope: servo pin=%d angle=%d duration=%d\n",
+                 servo_cmd.pin, servo_cmd.angle, servo_cmd.duration_ms);
+        break;
+    }
 
     default:
         return -ENOTTY;

@@ -17,8 +17,8 @@
 /* Número mágico único para este driver — Raspberry Pi 4 (BCM2711) */
 #define CHROMASCOPE_MAGIC  'C'
 
-/* Ruta del dispositivo de caracteres */
-#define CHROMASCOPE_DEV    "/dev/chromascope"
+/* Ruta del dispositivo de caracteres del driver GPIO */
+#define CHROMASCOPE_DEV    "/dev/chromascope_gpio"
 
 /*
  * Comandos ioctl
@@ -43,5 +43,13 @@
 #define IOCTL_GPIO_SET_HIGH    _IOW(CHROMASCOPE_MAGIC, 3, int)
 #define IOCTL_GPIO_SET_LOW     _IOW(CHROMASCOPE_MAGIC, 4, int)
 #define IOCTL_GPIO_READ        _IOWR(CHROMASCOPE_MAGIC, 5, int)
+
+struct gpio_cmd_servo {
+    int pin;            /* BCM GPIO pin */
+    int angle;          /* 0–180 grados */
+    int duration_ms;    /* tiempo de pulsado continuo */
+};
+
+#define IOCTL_GPIO_SET_SERVO_ANGLE _IOW(CHROMASCOPE_MAGIC, 6, struct gpio_cmd_servo)
 
 #endif /* CHROMASCOPE_GPIO_H */

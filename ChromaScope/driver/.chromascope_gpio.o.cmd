@@ -1060,6 +1060,9 @@ deps_/home/beto/Proyecto2Operativos/ChromaScope/driver/chromascope_gpio.o := \
   /usr/src/linux-headers-6.12.75+rpt-common-rpi/include/linux/logic_pio.h \
     $(wildcard include/config/INDIRECT_PIO) \
   /usr/src/linux-headers-6.12.75+rpt-common-rpi/include/linux/fwnode.h \
+  /usr/src/linux-headers-6.12.75+rpt-common-rpi/include/linux/delay.h \
+  arch/arm64/include/generated/asm/delay.h \
+  /usr/src/linux-headers-6.12.75+rpt-common-rpi/include/asm-generic/delay.h \
   /home/beto/Proyecto2Operativos/ChromaScope/driver/chromascope_gpio.h \
 
 /home/beto/Proyecto2Operativos/ChromaScope/driver/chromascope_gpio.o: $(deps_/home/beto/Proyecto2Operativos/ChromaScope/driver/chromascope_gpio.o)

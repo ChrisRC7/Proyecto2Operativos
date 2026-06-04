@@ -6,15 +6,22 @@
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <errno.h>
 
 #include "mpi_protocol.h"
 #include "../Nodes/worker.h"
 #include "../Image/ppm.h"
 #include "../Image/histogram.h"
 #include "../Crypto/chacha20.h"
+#include "../driver/chromascope_lcd.h"
+#include "../driver/chromascope_gpio.h"
 
 static void run_master(int world_size, const char *image_path);
 static void fill_test_key_nonce(uint8_t key[CHACHA20_KEY_SIZE], uint8_t nonce[CHACHA20_NONCE_SIZE]);
+static int display_histogram_on_lcd(const uint32_t *histogram, int bins);
+static int gpio_completion_sweep(void);
 static int write_binary_file(const char *path, const uint8_t *buffer, size_t size);
 
 int main(int argc, char **argv) {
@@ -244,7 +251,21 @@ static void run_master(int world_size, const char *image_path) {
         printf("[Rank 0] Validacion FALLIDA: histograma no coincide con pixeles esperados.\n");
     }
 
-    printf("\n[Rank 0] Integracion image + crypto + MPI completada.\n\n");
+    printf("\n[Rank 0] Integracion image + crypto + MPI completada.\n");
+
+    if (display_histogram_on_lcd(global_histogram, HIST_BINS) == 0) {
+        printf("[Rank 0] Histograma mostrado en la LCD ST7735.\n");
+    } else {
+        printf("[Rank 0] No se pudo mostrar el histograma en la LCD.\n");
+    }
+
+    if (gpio_completion_sweep() == 0) {
+        printf("[Rank 0] Barrido GPIO de finalizacion completado.\n");
+    } else {
+        printf("[Rank 0] No se pudo ejecutar el barrido GPIO.\n");
+    }
+
+    printf("\n");
 
     free(encrypted_pixels);
     free(decrypted_pixels);
@@ -259,6 +280,80 @@ static void fill_test_key_nonce(uint8_t key[CHACHA20_KEY_SIZE], uint8_t nonce[CH
     for (int i = 0; i < CHACHA20_NONCE_SIZE; i++) {
         nonce[i] = (uint8_t)(i + 100);
     }
+}
+
+static int display_histogram_on_lcd(const uint32_t *histogram, int bins) {
+    int fd = open(LCD_DEV, O_RDWR);
+    if (fd < 0) {
+        fprintf(stderr, "[Rank 0] No se pudo abrir %s: %s\n", LCD_DEV, strerror(errno));
+        return -1;
+    }
+
+    if (ioctl(fd, IOCTL_LCD_INIT) < 0) {
+        fprintf(stderr, "[Rank 0] IOCTL_LCD_INIT falló: %s\n", strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    struct lcd_cmd_histogram cmd;
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.n_bins = (bins > LCD_MAX_BINS) ? LCD_MAX_BINS : bins;
+    for (int i = 0; i < cmd.n_bins; i++) {
+        cmd.bins[i] = histogram[i];
+    }
+
+    if (ioctl(fd, IOCTL_LCD_SHOW_HISTOGRAM, &cmd) < 0) {
+        fprintf(stderr, "[Rank 0] IOCTL_LCD_SHOW_HISTOGRAM falló: %s\n", strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    close(fd);
+    return 0;
+}
+
+static int gpio_completion_sweep(void) {
+    const int servo_pin = 18; /* Cambiar según el pin BCM usado para el SG90 */
+    int fd = open(CHROMASCOPE_DEV, O_RDWR);
+
+    if (fd < 0) {
+        fprintf(stderr, "[Rank 0] No se pudo abrir %s: %s\n", CHROMASCOPE_DEV, strerror(errno));
+        return -1;
+    }
+
+    struct gpio_cmd_servo cmd;
+
+    cmd.pin = servo_pin;
+    cmd.angle = 0;
+    cmd.duration_ms = 400;
+    if (ioctl(fd, IOCTL_GPIO_SET_SERVO_ANGLE, &cmd) < 0) {
+        fprintf(stderr, "[Rank 0] IOCTL_GPIO_SET_SERVO_ANGLE(0) falló: %s\n", strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    usleep(500000); /* esperar a que el servo alcance la posición 0° */
+
+    cmd.angle = 90;
+    cmd.duration_ms = 800;
+    if (ioctl(fd, IOCTL_GPIO_SET_SERVO_ANGLE, &cmd) < 0) {
+        fprintf(stderr, "[Rank 0] IOCTL_GPIO_SET_SERVO_ANGLE(90) falló: %s\n", strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    usleep(800000); /* mantener 90° un momento */
+
+    cmd.angle = 0;
+    cmd.duration_ms = 800;
+    if (ioctl(fd, IOCTL_GPIO_SET_SERVO_ANGLE, &cmd) < 0) {
+        fprintf(stderr, "[Rank 0] IOCTL_GPIO_SET_SERVO_ANGLE(0) falló: %s\n", strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    close(fd);
+    return 0;
 }
 
 static int write_binary_file(const char *path, const uint8_t *buffer, size_t size) {
