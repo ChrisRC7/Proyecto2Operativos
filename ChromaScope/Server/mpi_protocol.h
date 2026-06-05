@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "../Crypto/chacha20.h"
+#include "../Crypto/chacha20.h"
 
 #define MASTER_RANK 0
 

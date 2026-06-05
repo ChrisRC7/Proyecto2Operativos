@@ -1,4 +1,5 @@
 #include <mpi.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -48,6 +49,7 @@ void run_worker(int rank) {
     }
 
     MPI_Recv(encrypted_strip,
+    MPI_Recv(encrypted_strip,
              metadata.strip_bytes,
              MPI_UNSIGNED_CHAR,
              MASTER_RANK,
@@ -55,6 +57,7 @@ void run_worker(int rank) {
              MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
 
+    printf("[Rank %d] Franja cifrada recibida correctamente.\n", rank);
     printf("[Rank %d] Franja cifrada recibida correctamente.\n", rank);
 
     /*
@@ -117,6 +120,12 @@ void run_worker(int rank) {
     memset(global_histogram, 0, sizeof(global_histogram));
 
     MPI_Reduce(partial_histogram,
+               global_histogram,
+               metadata.hist_bins,
+               MPI_UINT32_T,
+               MPI_SUM,
+               MASTER_RANK,
+               MPI_COMM_WORLD);
                global_histogram,
                metadata.hist_bins,
                MPI_UINT32_T,

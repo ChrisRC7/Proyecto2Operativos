@@ -26,17 +26,7 @@ CRYPTO_SRC = \
 	Crypto/chacha20.c \
 	Crypto/crypto_test.c
 
-IMAGE_LIB_SRC = \
-	Image/ppm.c \
-	Image/histogram.c
-
-CRYPTO_LIB_SRC = \
-	Crypto/chacha20.c
-
-IMAGE_OBJ = $(IMAGE_LIB_SRC:.c=.o)
-CRYPTO_OBJ = $(CRYPTO_LIB_SRC:.c=.o)
-
-.PHONY: all clean mpi image crypto test-image test-crypto run-local
+.PHONY: all clean mpi image crypto run-local test-image test-crypto
 
 all: mpi image crypto
 
@@ -56,24 +46,22 @@ $(CRYPTO_TEST_TARGET): $(CRYPTO_SRC)
 	$(CC) $(CFLAGS) -Icrypto -o $@ $(CRYPTO_SRC)
 
 run-local: $(MPI_TARGET)
-	mpirun -np 4 ./$(MPI_TARGET)
+	mpirun -np 4 ./$(MPI_TARGET) test_image.ppm
 
 test-image: $(IMAGE_TEST_TARGET)
 	./$(IMAGE_TEST_TARGET) test_image.ppm
 
 test-crypto: $(CRYPTO_TEST_TARGET)
-	./$(CRYPTO_TEST_TARGET)
+	./$(CRYPTO_TEST_TARGET) test_image.ppm
 
 clean:
 	rm -f $(MPI_TARGET)
 	rm -f $(IMAGE_TEST_TARGET)
 	rm -f $(CRYPTO_TEST_TARGET)
-	rm -f *.o
-	rm -f image/*.o
-	rm -f crypto/*.o
-	rm -f server/*.o
-	rm -f nodes/*.o
 	rm -f output_copy.ppm
 	rm -f output_gray.ppm
 	rm -f encrypted_output.bin
 	rm -f decrypted_output.ppm
+	rm -f cluster_output_gray.ppm
+	rm -f cluster_decrypted.ppm
+	rm -f cluster_encrypted_pixels.bin
