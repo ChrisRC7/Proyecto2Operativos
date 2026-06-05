@@ -10,12 +10,17 @@ CRYPTO_TEST_TARGET = crypto_test
 MPI_SRC = \
 	Server/main_server.c \
 	Nodes/worker.c \
-	Nodes/resource_monitor.c
+	Nodes/resource_monitor.c \
+	Image/ppm.c \
+	Image/histogram.c \
+	Image/rgb_filter.c \
+	Crypto/chacha20.c
 
 IMAGE_SRC = \
 	Image/ppm.c \
 	Image/histogram.c \
-	Image/image_test.c
+	Image/image_test.c \
+	Image/rgb_filter.c
 
 CRYPTO_SRC = \
 	Crypto/chacha20.c \

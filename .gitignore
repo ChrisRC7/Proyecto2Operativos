@@ -51,7 +51,7 @@ cluster_decrypted.ppm
 *_copy.ppm
 *_decrypted.ppm
 *_encrypted.ppm
-
+*/cluster_filtered_rgb.ppm
 
 # =========================
 # Salidas de crypto/
