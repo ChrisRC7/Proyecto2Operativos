@@ -41,6 +41,7 @@ if [ ! -f "${EXECUTABLE}" ]; then
 fi
 
 echo "[2/7] Preparing local temp directory..."
+rm -rf "${LOCAL_TMP}"
 mkdir -p "${LOCAL_TMP}"
 cp "${EXECUTABLE}" "${LOCAL_TMP}/"
 cp "${IMAGE_FILE}" "${LOCAL_TMP}/"
@@ -49,11 +50,10 @@ echo "[3/7] Checking SSH connection with worker..."
 ssh -x "${WORKER_HOST}" "hostname"
 
 echo "[4/7] Preparing remote temp directory..."
-ssh -x "${WORKER_HOST}" "mkdir -p ${REMOTE_TMP}"
+ssh "${WORKER_HOST}" "rm -rf ${REMOTE_TMP} && mkdir -p ${REMOTE_TMP}"
 
 echo "[5/7] Copying executable and image to worker..."
 scp "${EXECUTABLE}" "${WORKER_HOST}:${REMOTE_TMP}/"
-scp "${IMAGE_FILE}" "${WORKER_HOST}:${REMOTE_TMP}/"
 
 echo "[6/7] Creating temporary hostfile..."
 cat > "${HOSTFILE}" <<EOF
