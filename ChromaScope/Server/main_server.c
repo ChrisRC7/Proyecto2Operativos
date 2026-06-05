@@ -1,24 +1,14 @@
-#define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE
 
 #include <mpi.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
-#include <unistd.h>
 
 #include "mpi_protocol.h"
 #include "../Nodes/worker.h"
-#include "../Image/ppm.h"
-#include "../Image/histogram.h"
-#include "../Crypto/chacha20.h"
-
-static void run_master(int world_size, const char *image_path);
-static void fill_test_key_nonce(uint8_t key[CHACHA20_KEY_SIZE], uint8_t nonce[CHACHA20_NONCE_SIZE]);
-static int write_binary_file(const char *path, const uint8_t *buffer, size_t size);
 #include "../Image/ppm.h"
 #include "../Image/histogram.h"
 #include "../Crypto/chacha20.h"
@@ -68,7 +58,6 @@ int main(int argc, char **argv) {
 
     if (rank == MASTER_RANK) {
         run_master(world_size, argv[1]);
-        run_master(world_size, argv[1]);
     } else {
         run_worker(rank);
     }
@@ -77,8 +66,6 @@ int main(int argc, char **argv) {
     return EXIT_SUCCESS;
 }
 
-static void run_master(int world_size, const char *image_path) {
-    PPMImage image;
 static void run_master(int world_size, const char *image_path) {
     PPMImage image;
 
@@ -229,7 +216,6 @@ static void run_master(int world_size, const char *image_path) {
                  MPI_COMM_WORLD);
 
         MPI_Send(encrypted_strip,
-        MPI_Send(encrypted_strip,
                  strip_bytes,
                  MPI_UNSIGNED_CHAR,
                  worker_rank,
@@ -273,14 +259,7 @@ static void run_master(int world_size, const char *image_path) {
                MPI_SUM,
                MASTER_RANK,
                MPI_COMM_WORLD);
-               global_histogram,
-               HIST_BINS,
-               MPI_UINT32_T,
-               MPI_SUM,
-               MASTER_RANK,
-               MPI_COMM_WORLD);
 
-    printf("\n[Rank 0] Histogramas consolidados mediante MPI_Reduce.\n");
     printf("\n[Rank 0] Histogramas consolidados mediante MPI_Reduce.\n");
 
     /*
@@ -327,7 +306,6 @@ static void run_master(int world_size, const char *image_path) {
     histogram_print(global_histogram, HIST_BINS);
 
     int dominant_bin = histogram_find_dominant_bin(global_histogram, HIST_BINS);
-    int dominant_bin = histogram_find_dominant_bin(global_histogram, HIST_BINS);
 
     printf("\n[Rank 0] Bin dominante: %d\n", dominant_bin);
     printf("[Rank 0] Rango aproximado de hue: %d° - %d°\n",
@@ -358,13 +336,6 @@ static void run_master(int world_size, const char *image_path) {
     ppm_free(&image);
 }
 
-static void fill_test_key_nonce(uint8_t key[CHACHA20_KEY_SIZE], uint8_t nonce[CHACHA20_NONCE_SIZE]) {
-    for (int i = 0; i < CHACHA20_KEY_SIZE; i++) {
-        key[i] = (uint8_t)i;
-    }
-
-    for (int i = 0; i < CHACHA20_NONCE_SIZE; i++) {
-        nonce[i] = (uint8_t)(i + 100);
 static void fill_test_key_nonce(uint8_t key[CHACHA20_KEY_SIZE], uint8_t nonce[CHACHA20_NONCE_SIZE]) {
     for (int i = 0; i < CHACHA20_KEY_SIZE; i++) {
         key[i] = (uint8_t)i;
