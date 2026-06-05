@@ -131,6 +131,13 @@ static struct class   *lcd_class;
 /* Nodo /dev/chromascope generado por device_create()                        */
 static struct device  *lcd_device;
 
+static char *chromascope_lcd_devnode(const struct device *dev, umode_t *mode)
+{
+    if (mode)
+        *mode = 0666;
+    return NULL;
+}
+
 /* Mutex que serializa el acceso al bus SPI (bit-bang no es re-entrante)     */
 static DEFINE_MUTEX(lcd_mutex);
 
@@ -796,6 +803,8 @@ static int __init chromascope_lcd_init(void)
         pr_err("chromascope_lcd: class_create falló (%d)\n", ret);
         goto err_cdev;
     }
+
+    lcd_class->devnode = chromascope_lcd_devnode;
 
     /* device_create crea /dev/chromascope y notifica a udev para crear el nodo*/
     lcd_device = device_create(lcd_class, NULL, dev_num, NULL, DEVICE_NAME);

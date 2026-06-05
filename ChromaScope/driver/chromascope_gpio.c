@@ -55,6 +55,13 @@ static struct cdev    chromascope_cdev;
 static struct class  *chromascope_class;
 static struct device *chromascope_device;
 
+static char *chromascope_gpio_devnode(const struct device *dev, umode_t *mode)
+{
+    if (mode)
+        *mode = 0666;
+    return NULL;
+}
+
 static const unsigned int gpio_phys_base = BCM2711_GPIO_BASE;
 
 /* ── Primitivas de bajo nivel ────────────────────────────────────────────── */
@@ -268,6 +275,8 @@ static int __init chromascope_init(void)
         pr_err("chromascope: class_create falló (%d)\n", ret);
         goto err_cdev;
     }
+
+    chromascope_class->devnode = chromascope_gpio_devnode;
 
     /* 5. Crear nodo /dev/chromascope automáticamente */
     chromascope_device = device_create(chromascope_class, NULL,

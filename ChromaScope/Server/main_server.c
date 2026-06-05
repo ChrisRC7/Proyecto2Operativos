@@ -383,7 +383,7 @@ static int display_histogram_on_lcd(const uint32_t *histogram, int bins) {
     struct lcd_cmd_histogram cmd;
     memset(&cmd, 0, sizeof(cmd));
     cmd.n_bins = (bins > LCD_MAX_BINS) ? LCD_MAX_BINS : bins;
-    for (int i = 0; i < cmd.n_bins; i++) {
+    for (unsigned int i = 0; i < cmd.n_bins; i++) {
         cmd.bins[i] = histogram[i];
     }
 
