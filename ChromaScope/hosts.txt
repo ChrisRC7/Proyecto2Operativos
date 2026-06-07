@@ -1,4 +1,0 @@
-localhost slots=1
-yerik@100.100.81.76 slots=1
-chris@100.120.142.9 slots=1
-bbg@100.101.13.93 slots=1

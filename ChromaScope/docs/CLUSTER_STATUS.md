@@ -1,4 +1,5 @@
-# ChromaScope — Estado actual del clúster MPI
+#
+ ChromaScope — Estado actual del clúster MPI
 
 > CE 4303 Principios de Sistemas Operativos  
 > Módulo: Clúster MPI + integración `image/` + `crypto/`  
