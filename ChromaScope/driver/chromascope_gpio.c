@@ -46,7 +46,7 @@
 #define GPIO_FUNC_OUTPUT  0x1U
 
 /* ── Límite de pines del conector de 40 pines (BCM 0–27) ────────────────── */
-#define GPIO_PIN_MAX  27
+#define GPIO_PIN_MAX  18
 
 /* ── Variables globales del módulo ───────────────────────────────────────── */
 static void __iomem *gpio_base;

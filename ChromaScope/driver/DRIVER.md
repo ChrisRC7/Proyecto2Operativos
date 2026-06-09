@@ -66,7 +66,7 @@ El driver **no usa `gpiolib`, `pinctrl` ni el subsistema SPI del kernel**. Acced
 | Pin LCD | Señal    | GPIO RPi 4 | Pin físico | Parámetro módulo |
 |---------|----------|-----------|------------|------------------|
 | SCK/CLK | Reloj    | GPIO 11   | 23         | `pin_clk=11`     |
-| DIN/MOSI| Datos    | GPIO 10   | 19         | `pin_mosi=10`    |
+| DIN/MOSI| Datos    | GPIO 10   | 19         | `pin_din=10`    |
 | CS      | Chip Sel.| GPIO 8    | 24         | `pin_cs=8`       |
 | DC/RS   | Dato/Cmd | GPIO 25   | 22         | `pin_dc=25`      |
 | RST     | Reset    | GPIO 27   | 13         | `pin_rst=27`     |
