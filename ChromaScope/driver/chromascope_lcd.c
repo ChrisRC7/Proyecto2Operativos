@@ -95,21 +95,21 @@
 
 /* Números BCM de los pines usados. Se pueden cambiar al cargar el módulo:   */
 /*   sudo insmod chromascope_lcd.ko pin_dc=24 pin_clk=23                     */
-static int pin_clk  = 11;  /* Señal de reloj SPI (CLK/SCK): GPIO 11, pin físico 23 */
-static int pin_mosi = 10;  /* Datos del maestro al esclavo (DIN): GPIO 10, pin 19  */
-static int pin_cs   =  8;  /* Chip Select — activo en LOW: GPIO 8, pin físico 24  */
-static int pin_dc   = 25;  /* Data/Command: LOW=comando, HIGH=dato: GPIO 25, pin 22*/
-static int pin_rst  = 27;  /* Reset hardware del ST7735 (activo en LOW): GPIO 27  */
+static int pin_rst  = 4;  /* Reset hardware del ST7735 (activo en LOW): GPIO 27  */
+static int pin_cs   =  17;  /* Chip Select — activo en LOW: GPIO 8, pin físico 24  */
+static int pin_dc   = 27;  /* Data/Command: LOW=comando, HIGH=dato: GPIO 25, pin 22*/
+static int pin_din = 22;  /* Datos del maestro al esclavo (DIN): GPIO 10, pin 19  */
+static int pin_clk  = 26;  /* Señal de reloj SPI (CLK/SCK): GPIO 11, pin físico 23 */
 
 /* Registrar cada variable como parámetro legible (0444 = solo lectura en sysfs) */
 module_param(pin_clk,  int, 0444);
-module_param(pin_mosi, int, 0444);
+module_param(pin_din, int, 0444);
 module_param(pin_cs,   int, 0444);
 module_param(pin_dc,   int, 0444);
 module_param(pin_rst,  int, 0444);
 /* Descripción que aparece en modinfo y en /sys/module/chromascope_lcd/parameters/ */
 MODULE_PARM_DESC(pin_clk,  "GPIO CLK  (defecto: 11 — pin físico 23)");
-MODULE_PARM_DESC(pin_mosi, "GPIO MOSI (defecto: 10 — pin físico 19)");
+MODULE_PARM_DESC(pin_din, "GPIO MOSI (defecto: 10 — pin físico 19)");
 MODULE_PARM_DESC(pin_cs,   "GPIO CS   (defecto:  8 — pin físico 24)");
 MODULE_PARM_DESC(pin_dc,   "GPIO DC   (defecto: 25 — pin físico 22)");
 MODULE_PARM_DESC(pin_rst,  "GPIO RST  (defecto: 27 — pin físico 13)");
@@ -130,6 +130,13 @@ static struct class   *lcd_class;
 
 /* Nodo /dev/chromascope generado por device_create()                        */
 static struct device  *lcd_device;
+
+static char *chromascope_lcd_devnode(const struct device *dev, umode_t *mode)
+{
+    if (mode)
+        *mode = 0666;
+    return NULL;
+}
 
 /* Mutex que serializa el acceso al bus SPI (bit-bang no es re-entrante)     */
 static DEFINE_MUTEX(lcd_mutex);
@@ -217,9 +224,9 @@ static void spi_write_byte(u8 byte)
 
         /* Poner MOSI al nivel del bit actual antes de subir el reloj           */
         if (byte & (1u << i))
-            gpio_high(pin_mosi);  /* bit = 1: MOSI en HIGH                     */
+            gpio_high(pin_din);  /* bit = 1: MOSI en HIGH                     */
         else
-            gpio_low(pin_mosi);   /* bit = 0: MOSI en LOW                      */
+            gpio_low(pin_din);   /* bit = 0: MOSI en LOW                      */
 
         /* Flanco ascendente: el ST7735 lee MOSI en este momento (CPHA=0)       */
         gpio_high(pin_clk);
@@ -564,7 +571,7 @@ static u16 hue_to_rgb565(u32 hue_deg)
      *   Bits 10–5:  6 bits de Verde  (tomar bits 7–2: >> 2 después de & 0xFC)
      *   Bits  4–0:  5 bits de Azul   (tomar bits 7–3: >> 3)
      */
-    return (u16)(((r & 0xF8u) << 8) | ((g & 0xFCu) << 3) | (b >> 3));
+    return (u16)(((b & 0xF8u) << 8) | ((g & 0xFCu) << 3) | (r >> 3));
 }
 
 /* ── Visualización del histograma HSV ────────────────────────────────────── */
@@ -709,7 +716,7 @@ static void lcd_setup_pins(void)
 {
     /* Configurar todos los pines SPI+control como salidas digitales            */
     gpio_set_func(pin_clk,  GPIO_FUNC_OUT);  /* CLK: salida de reloj SPI       */
-    gpio_set_func(pin_mosi, GPIO_FUNC_OUT);  /* MOSI/DIN: salida de datos SPI  */
+    gpio_set_func(pin_din, GPIO_FUNC_OUT);  /* MOSI/DIN: salida de datos SPI  */
     gpio_set_func(pin_cs,   GPIO_FUNC_OUT);  /* CS: selección de chip          */
     gpio_set_func(pin_dc,   GPIO_FUNC_OUT);  /* DC: selector dato/comando      */
     gpio_set_func(pin_rst,  GPIO_FUNC_OUT);  /* RST: reset del controlador     */
@@ -726,7 +733,7 @@ static void lcd_setup_pins(void)
     gpio_high(pin_dc);    /* DC en reposo = HIGH (dato)                        */
     gpio_high(pin_rst);   /* RST en reposo = HIGH (no-reset)                   */
     gpio_low(pin_clk);    /* CLK en reposo = LOW (CPOL=0)                      */
-    gpio_low(pin_mosi);   /* MOSI en reposo = LOW                              */
+    gpio_low(pin_din);   /* MOSI en reposo = LOW                              */
 }
 
 /* ── module_init / module_exit ───────────────────────────────────────────── */
@@ -797,6 +804,8 @@ static int __init chromascope_lcd_init(void)
         goto err_cdev;
     }
 
+    lcd_class->devnode = chromascope_lcd_devnode;
+
     /* device_create crea /dev/chromascope y notifica a udev para crear el nodo*/
     lcd_device = device_create(lcd_class, NULL, dev_num, NULL, DEVICE_NAME);
     if (IS_ERR(lcd_device)) {
@@ -809,7 +818,7 @@ static int __init chromascope_lcd_init(void)
     pr_info("chromascope_lcd: driver cargado — /dev/%s (major=%d)\n",
             DEVICE_NAME, MAJOR(dev_num));
     pr_info("chromascope_lcd: CLK=%d MOSI=%d CS=%d DC=%d RST=%d\n",
-            pin_clk, pin_mosi, pin_cs, pin_dc, pin_rst);
+            pin_clk, pin_din, pin_cs, pin_dc, pin_rst);
     pr_info("chromascope_lcd: llama 'ioctl IOCTL_LCD_INIT' para encender la pantalla\n");
     return 0;   /* éxito: módulo cargado y /dev/chromascope disponible        */
 
