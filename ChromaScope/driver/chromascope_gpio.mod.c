@@ -33,6 +33,7 @@ __used __section("__versions") = {
 	{ 0x6e26cac4, "device_create" },
 	{ 0x12a4e128, "__arch_copy_from_user" },
 	{ 0x6cbbfc54, "__arch_copy_to_user" },
+	{ 0x9e7d6bd0, "__udelay" },
 	{ 0xf0fdf6cb, "__stack_chk_fail" },
 	{ 0x474e54d2, "module_layout" },
 };
@@ -40,4 +41,4 @@ __used __section("__versions") = {
 MODULE_INFO(depends, "");
 
 
-MODULE_INFO(srcversion, "8AD7E4662C48043865269EC");
+MODULE_INFO(srcversion, "8EE0DE4F2B85E50966506DA");

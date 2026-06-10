@@ -31,6 +31,7 @@ obj/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
+ChromaScope/chromascope_mpi
 
 # OJO:
 # Si están usando Makefile propio en la raíz, NO ignoren Makefile.
@@ -51,7 +52,7 @@ cluster_decrypted.ppm
 *_copy.ppm
 *_decrypted.ppm
 *_encrypted.ppm
-
+*/cluster_filtered_rgb.ppm
 
 # =========================
 # Salidas de crypto/

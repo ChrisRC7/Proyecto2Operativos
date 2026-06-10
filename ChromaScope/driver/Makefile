@@ -10,8 +10,8 @@
 #   make modules -> solo los modulos kernel
 #   make test    -> solo el binario de prueba userspace
 #   make clean   -> limpia todos los artefactos
-#   make load    -> insmod chromascope_lcd.ko + verifica /dev/chromascope
-#   make unload  -> rmmod chromascope_lcd
+#   make load    -> insmod chromascope_lcd.ko + chromascope_gpio.ko
+#   make unload  -> rmmod ambos modulos
 #   make run     -> load + ejecutar test_lcd
 #   make dmesg   -> ultimos mensajes del kernel relativos a chromascope
 
@@ -36,7 +36,7 @@ all: modules test
 modules:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
-test: $(TEST_SRC) chromascope_lcd.h
+test: $(TEST_SRC) chromascope_lcd.h chromascope_gpio.h
 	$(CC) $(CFLAGS) -o $(TEST_BIN) $(TEST_SRC)
 
 clean:
@@ -44,12 +44,15 @@ clean:
 	rm -f $(TEST_BIN)
 
 load: modules
+	sudo insmod chromascope_gpio.ko
 	sudo insmod chromascope_lcd.ko
-	@ls -la /dev/chromascope && echo "[OK] /dev/chromascope creado"
+	@ls -la /dev/chromascope_gpio && echo "[OK] /dev/chromascope_gpio creado"
+	@ls -la /dev/chromascope      && echo "[OK] /dev/chromascope creado"
 
 unload:
 	sudo rmmod chromascope_lcd
-	@echo "[OK] Driver descargado"
+	sudo rmmod chromascope_gpio
+	@echo "[OK] Ambos drivers descargados"
 
 run: load test
 	sudo ./$(TEST_BIN)
