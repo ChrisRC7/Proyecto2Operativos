@@ -56,10 +56,21 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    MPI_Barrier(MPI_COMM_WORLD);
+    double bench_t0 = MPI_Wtime();
+
     if (rank == MASTER_RANK) {
         run_master(world_size, argv[1]);
     } else {
         run_worker(rank);
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    double bench_t1 = MPI_Wtime();
+    if (rank == MASTER_RANK) {
+        printf("[BENCH] procesos=%d workers=%d tiempo=%.6f\n",
+               world_size, world_size - 1, bench_t1 - bench_t0);
+        fflush(stdout);
     }
 
     MPI_Finalize();
@@ -229,7 +240,8 @@ static void run_master(int world_size, const char *image_path) {
      * Guardar archivo cifrado y descifrado de verificación.
      * cluster_encrypted_pixels.bin no es un PPM completo, solo los bytes RGB cifrados.
      */
-    if (write_binary_file("cluster_encrypted_pixels.bin", encrypted_pixels, total_bytes) == 0) {
+    if (!getenv("CHROMA_BENCH") &&
+        write_binary_file("cluster_encrypted_pixels.bin", encrypted_pixels, total_bytes) == 0) {
         printf("[Rank 0] Pixeles cifrados guardados como cluster_encrypted_pixels.bin\n");
     }
 
@@ -238,7 +250,8 @@ static void run_master(int world_size, const char *image_path) {
     decrypted_image.height = height;
     decrypted_image.pixels = decrypted_pixels;
 
-    if (ppm_write("cluster_decrypted.ppm", &decrypted_image) == 0) {
+    if (!getenv("CHROMA_BENCH") &&
+        ppm_write("cluster_decrypted.ppm", &decrypted_image) == 0) {
         printf("[Rank 0] Imagen descifrada de verificacion guardada como cluster_decrypted.ppm\n");
     }
 
@@ -296,7 +309,9 @@ static void run_master(int world_size, const char *image_path) {
     filtered_image.height = height;
     filtered_image.pixels = filtered_pixels;
 
-    if (ppm_write("cluster_filtered_rgb.ppm", &filtered_image) == 0) {
+    if (getenv("CHROMA_BENCH")) {
+        /* modo benchmark: se omite la escritura del PPM filtrado (ahorra disco y tiempo de I/O) */
+    } else if (ppm_write("cluster_filtered_rgb.ppm", &filtered_image) == 0) {
         printf("[Rank 0] Imagen filtrada RGB reconstruida guardada como cluster_filtered_rgb.ppm\n");
     } else {
         fprintf(stderr, "[Rank 0] Error: no se pudo guardar cluster_filtered_rgb.ppm\n");

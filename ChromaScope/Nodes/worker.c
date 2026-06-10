@@ -64,51 +64,63 @@ void run_worker(int rank) {
      * Master cifra:     plain XOR keystream = encrypted
      * Worker descifra:  encrypted XOR keystream = plain
      */
-    chacha20_encrypt_buffer(
-        metadata.key,
-        metadata.nonce,
-        metadata.crypto_counter,
-        encrypted_strip,
-        decrypted_strip,
-        (size_t)metadata.strip_bytes
-    );
-
-    printf("[Rank %d] Franja descifrada correctamente con ChaCha20.\n", rank);
-
-    print_resource_snapshot(rank);
+    /*
+     * Factor de carga para benchmark (CHROMA_WORK): repite el computo del worker
+     * (descifrado + histograma + filtro) K veces. Solo aumenta el tiempo de computo;
+     * el resultado final (de la ultima iteracion) es identico. Sirve para volver el
+     * workload compute-bound y poder medir speedup real (strong scaling).
+     */
+    int work_factor = 1;
+    {
+        const char *cw = getenv("CHROMA_WORK");
+        if (cw != NULL) {
+            work_factor = atoi(cw);
+            if (work_factor < 1) {
+                work_factor = 1;
+            }
+        }
+    }
 
     /*
-     * El histograma debe calcularse sobre la imagen original.
-     * Por eso se usa decrypted_strip ANTES de aplicar el filtro RGB.
+     * ChaCha20 usa XOR, por eso la misma función sirve para cifrar y descifrar.
+     * El histograma se calcula sobre la imagen original (decrypted) antes del filtro.
      */
     uint32_t partial_histogram[HIST_BINS];
-    memset(partial_histogram, 0, sizeof(partial_histogram));
 
-    hsv_histogram_rgb_buffer(
-        decrypted_strip,
-        metadata.width,
-        metadata.rows,
-        metadata.hist_bins,
-        partial_histogram
-    );
+    for (int iteration = 0; iteration < work_factor; iteration++) {
+        chacha20_encrypt_buffer(
+            metadata.key,
+            metadata.nonce,
+            metadata.crypto_counter,
+            encrypted_strip,
+            decrypted_strip,
+            (size_t)metadata.strip_bytes
+        );
 
+        memset(partial_histogram, 0, sizeof(partial_histogram));
+        hsv_histogram_rgb_buffer(
+            decrypted_strip,
+            metadata.width,
+            metadata.rows,
+            metadata.hist_bins,
+            partial_histogram
+        );
+
+        rgb_filter_buffer(
+            decrypted_strip,
+            filtered_strip,
+            metadata.width,
+            metadata.rows,
+            metadata.filter_r_gain,
+            metadata.filter_g_gain,
+            metadata.filter_b_gain
+        );
+    }
+
+    printf("[Rank %d] Franja descifrada correctamente con ChaCha20.\n", rank);
+    print_resource_snapshot(rank);
     printf("[Rank %d] Histograma HSV parcial calculado sobre imagen original.\n", rank);
-
-    /*
-     * El filtro RGB lo aplica el worker.
-     * La salida filtered_strip será devuelta al master para reconstruir la imagen completa.
-     */
-    rgb_filter_buffer(
-        decrypted_strip,
-        filtered_strip,
-        metadata.width,
-        metadata.rows,
-        metadata.filter_r_gain,
-        metadata.filter_g_gain,
-        metadata.filter_b_gain
-    );
-
-    printf("[Rank %d] Filtro RGB aplicado sobre la franja.\n", rank);
+    printf("[Rank %d] Filtro RGB aplicado sobre la franja (work_factor=%d).\n", rank, work_factor);
 
     /*
      * Consolidación del histograma.
