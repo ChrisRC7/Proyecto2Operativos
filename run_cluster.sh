@@ -103,7 +103,7 @@ for s in $CAND; do
   # Compilar en el worker remoto (arquitectura x86_64 en laptops del equipo).
   # ssh -o ConnectTimeout=60: timeout mayor para la compilación.
   compile_out=$(ssh -o BatchMode=yes -o ConnectTimeout=60 "$w" \
-    "make -C $REMOTE_SRCDIR mpi 2>&1" 2>/dev/null)
+    "make -C $REMOTE_SRCDIR clean 2>&1 && make -C $REMOTE_SRCDIR mpi 2>&1" 2>/dev/null)
 
   # Verificar que la compilación en el worker fue exitosa ($? es el exit code).
   if [ $? -ne 0 ]; then
