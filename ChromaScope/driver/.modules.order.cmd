@@ -1,1 +1,1 @@
-savedcmd_/home/beto/Proyecto2Operativos/ChromaScope/driver/modules.order := {   echo /home/beto/Proyecto2Operativos/ChromaScope/driver/chromascope_lcd.o;   echo /home/beto/Proyecto2Operativos/ChromaScope/driver/chromascope_gpio.o; :; } > /home/beto/Proyecto2Operativos/ChromaScope/driver/modules.order
+savedcmd_modules.order := {   echo chromascope_lcd.o;   echo chromascope_gpio.o; :; } > modules.order
