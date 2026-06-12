@@ -1,1 +1,1 @@
-savedcmd_chromascope_lcd.mod := printf '%s\n'   chromascope_lcd.o | awk '!x[$$0]++ { print("./"$$0) }' > chromascope_lcd.mod
+savedcmd_/home/beto/Proyecto2Operativos/ChromaScope/driver/chromascope_lcd.mod := printf '%s\n'   chromascope_lcd.o | awk '!x[$$0]++ { print("/home/beto/Proyecto2Operativos/ChromaScope/driver/"$$0) }' > /home/beto/Proyecto2Operativos/ChromaScope/driver/chromascope_lcd.mod

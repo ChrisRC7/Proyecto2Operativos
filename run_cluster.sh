@@ -37,15 +37,22 @@ MPIRUN=/usr/local/bin/mpirun
 # ── Función: construir el array de flags de mpirun ───────────────────────
 # printf '%s\0': separar cada flag con un byte nulo (safe con espacios en paths)
 # Se usa luego con: mapfile -d '' -t F < <(mpi_flags)
+# SSH sin X11 forwarding
+# transporte: memoria compartida + TCP
+# usar solo la interfaz VPN Tailscale
+# deshabilitar IPv6 (solo IPv4 en Tailscale)
+# control MPI también por Tailscale
+# exportar la variable de carga al entorno
+# directorio de trabajo en cada proceso
 mpi_flags() {
   printf '%s\0' --prefix /usr/local \
-    --mca plm_rsh_agent "ssh -x -o BatchMode=yes" \  # SSH sin X11 forwarding
-    --mca btl self,tcp \                             # transporte: memoria compartida + TCP
-    --mca btl_tcp_if_include tailscale0 \            # usar solo la interfaz VPN Tailscale
-    --mca btl_tcp_disable_family 6 \                 # deshabilitar IPv6 (solo IPv4 en Tailscale)
-    --mca oob_tcp_if_include tailscale0 \            # control MPI también por Tailscale
-    -x CHROMA_WORK \                                 # exportar la variable de carga al entorno
-    --wdir "$SRCDIR"                                 # directorio de trabajo en cada proceso
+    --mca plm_rsh_agent "ssh -x -o BatchMode=yes" \
+    --mca btl self,tcp \
+    --mca btl_tcp_if_include tailscale0 \
+    --mca btl_tcp_disable_family 6 \
+    --mca oob_tcp_if_include tailscale0 \
+    -x CHROMA_WORK \
+    --wdir "$SRCDIR"                                 
 }
 
 # ── Parseo de argumentos de línea de comandos ────────────────────────────
