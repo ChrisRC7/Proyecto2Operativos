@@ -14,9 +14,8 @@ set -u
 SRCDIR="/home/beto/Proyecto2Operativos/ChromaScope"
 REMOTE_SRCDIR="/home/beto/Proyecto2Operativos/ChromaScope"
 BENCH_DIR="/home/beto/Proyecto2Operativos/benchmark"
-WDIR=/tmp/chromascope_test
 BINARY_NAME="chromascope_mpi"
-IMAGE="$SRCDIR/test_image.ppm"
+IMAGE="test_image.ppm"
 ALL="chris randall yerik gabriel"
 TIMEOUT=6
 
@@ -29,7 +28,7 @@ mpi_flags() {
     --mca btl_tcp_disable_family 6 \
     --mca oob_tcp_if_include tailscale0 \
     -x CHROMA_WORK \
-    --wdir "$WDIR"
+    --wdir "$SRCDIR"
 }
 
 BENCH=0; REPS=3; WORK=40; CAND="$ALL"
@@ -46,12 +45,6 @@ else
   echo "ERROR: fallo compilacion ARM. Abortando."
   exit 1
 fi
-
-mkdir -p "$WDIR"
-cp "$SRCDIR/$BINARY_NAME" "$WDIR/$BINARY_NAME" \
-  || { echo "ERROR: no se pudo copiar binario ARM a $WDIR"; exit 1; }
-cp "$IMAGE" "$WDIR/test_image.ppm" \
-  || { echo "ERROR: no se encontro $IMAGE"; exit 1; }
 
 echo ""
 echo ">> Compilando x86 y preparando workers..."
@@ -74,11 +67,10 @@ for s in $CAND; do
     continue
   fi
 
+  # Verificar que el binario y la imagen existen en el worker
   if ! ssh -o BatchMode=yes -o ConnectTimeout=$TIMEOUT "$w" \
-       "mkdir -p $WDIR \
-        && cp $REMOTE_SRCDIR/$BINARY_NAME $WDIR/$BINARY_NAME \
-        && cp $REMOTE_SRCDIR/test_image.ppm $WDIR/test_image.ppm" 2>/dev/null; then
-    echo "ERROR preparando WDIR remoto -> descartada"
+       "test -f $REMOTE_SRCDIR/$BINARY_NAME && test -f $REMOTE_SRCDIR/$IMAGE" 2>/dev/null; then
+    echo "ERROR: binario o imagen no encontrados en $REMOTE_SRCDIR -> descartada"
     continue
   fi
 
@@ -91,15 +83,15 @@ echo ""
 
 # run_once: $1=lista de hosts (incluye localhost), $2=np
 run_once() {
-  local hosts="$1" np="$2" hf="$WDIR/hostfile"
+  local hosts="$1" np="$2" hf="$SRCDIR/hostfile"
   : > "$hf"
   for h in $hosts; do echo "$h slots=1" >> "$hf"; done
-  cd "$WDIR" || exit 1
+  cd "$SRCDIR" || exit 1
   mapfile -d '' -t F < <(mpi_flags)
   env -u DISPLAY -u XAUTHORITY \
     CHROMA_WORK="${CHROMA_WORK:-1}" \
     "$MPIRUN" -np "$np" --hostfile "$hf" "${F[@]}" \
-    $BINARY_NAME test_image.ppm 2>/dev/null
+    ./$BINARY_NAME $IMAGE 2>/dev/null
 }
 
 # ===================== MODO NORMAL =====================
@@ -113,7 +105,7 @@ if [ $BENCH -eq 0 ]; then
   echo ">> Corriendo -np $np ..."
   echo ""
   run_once "$hosts" "$np"
-  rm -f "$WDIR"/cluster_*.ppm "$WDIR"/cluster_*.bin
+  rm -f "$SRCDIR"/cluster_*.ppm "$SRCDIR"/cluster_*.bin "$SRCDIR/hostfile"
   exit 0
 fi
 
@@ -145,7 +137,7 @@ for ((k=1; k<=NW; k++)); do
     [ -z "$t" ] && t=0
     sum=$(awk -v s="$sum" -v t="$t" 'BEGIN{print s+t}')
     mn=$(awk  -v m="$mn"  -v t="$t" 'BEGIN{print (t>0 && t<m)?t:m}')
-    rm -f "$WDIR"/cluster_*.ppm "$WDIR"/cluster_*.bin
+    rm -f "$SRCDIR"/cluster_*.ppm "$SRCDIR"/cluster_*.bin
   done
 
   avg=$(awk -v s="$sum" -v r="$REPS" 'BEGIN{printf "%.4f", s/r}')
@@ -155,6 +147,7 @@ for ((k=1; k<=NW; k++)); do
 done
 
 unset CHROMA_BENCH CHROMA_WORK
+rm -f "$SRCDIR/hostfile"
 
 echo ""
 echo "===== TIEMPO DE COMPUTO (MPI_Wtime, menor=mejor) ====="

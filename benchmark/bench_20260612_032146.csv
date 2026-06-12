@@ -1,0 +1,4 @@
+workers,procesos,tiempo_avg_s,tiempo_min_s
+1,2,10.8453,10.3107
+2,3,15.6304,14.9362
+3,4,14.1801,12.0405
