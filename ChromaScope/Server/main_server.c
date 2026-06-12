@@ -26,8 +26,6 @@
 #include <stdint.h>     /* uint8_t, uint32_t, uint64_t: tipos de ancho fijo    */
 #include <string.h>     /* memcpy, memset: manipulación de bloques de memoria   */
 #include <unistd.h>     /* gethostname(), usleep(): hostname y espera en µs    */
-#include <fcntl.h>      /* O_RDWR: flags de apertura de archivo del driver     */
-#include <sys/ioctl.h>  /* ioctl(): interfaz con los drivers de kernel         */
 #include <errno.h>      /* errno, strerror(): diagnóstico de errores del SO    */
 
 #include "mpi_protocol.h"            /* StripMetadata, tags, constantes de procesos */
@@ -35,8 +33,14 @@
 #include "../Image/ppm.h"            /* PPMImage, ppm_read, ppm_write, ppm_free     */
 #include "../Image/histogram.h"      /* histogram_print, histogram_find_dominant_bin*/
 #include "../Crypto/chacha20.h"      /* chacha20_encrypt_buffer()                   */
-#include "../driver/chromascope_lcd.h"  /* ioctl LCD: IOCTL_LCD_INIT, IOCTL_LCD_SHOW_HISTOGRAM */
-#include "../driver/chromascope_gpio.h" /* ioctl GPIO: IOCTL_GPIO_SET_SERVO_ANGLE   */
+
+/*
+ * Bibliotecas de hardware: son la ÚNICA interfaz permitida con los drivers.
+ * No se usan ioctl, open ni close directos en este archivo; toda la
+ * interacción con el hardware queda encapsulada en las funciones lib*.
+ */
+#include "../lib/libchromascope_lcd.h"  /* lcd_fill_screen, lcd_show_histogram, etc. */
+#include "../lib/libchromascope_gpio.h" /* gpio_servo_move, chromascope_gpio_init, etc.*/
 
 /* ── Declaraciones de funciones privadas ────────────────────────────────── */
 static void run_master(int world_size, const char *image_path);
@@ -44,6 +48,12 @@ static void fill_test_key_nonce(uint8_t key[CHACHA20_KEY_SIZE], uint8_t nonce[CH
 static int  display_histogram_on_lcd(const uint32_t *histogram, int bins);
 static int  gpio_completion_sweep(void);
 static int  write_binary_file(const char *path, const uint8_t *buffer, size_t size);
+
+/*
+ * Nota: display_histogram_on_lcd() y gpio_completion_sweep() son wrappers
+ * delgados sobre las funciones de las bibliotecas libchromascope_lcd y
+ * libchromascope_gpio. Su lógica interna ya no contiene ioctl directos.
+ */
 
 /* ────────────────────────────────────────────────────────────────────────── */
 
@@ -482,53 +492,37 @@ static void fill_test_key_nonce(uint8_t key[CHACHA20_KEY_SIZE], uint8_t nonce[CH
 /* ────────────────────────────────────────────────────────────────────────── */
 
 /*
- * display_histogram_on_lcd() — muestra el histograma HSV en la pantalla ST7735
- * usando el driver de kernel chromascope_lcd a través de ioctl.
+ * display_histogram_on_lcd() — muestra el histograma HSV en la pantalla ST7735.
  *
- * Pasos:
- *   1. Abrir /dev/chromascope (el nodo de dispositivo del driver LCD).
- *   2. Enviar IOCTL_LCD_INIT para inicializar y encender la pantalla.
- *   3. Copiar los bins del histograma a una struct lcd_cmd_histogram.
- *   4. Enviar IOCTL_LCD_SHOW_HISTOGRAM para dibujar las barras de colores.
- *   5. Cerrar el file descriptor.
+ * Delega completamente en la biblioteca libchromascope_lcd:
+ *   1. chromascope_lcd_init():  abre /dev/chromascope y envía la secuencia de
+ *                               encendido del ST7735 (tablas rcmd1/2/3).
+ *   2. lcd_show_histogram():    dibuja barras verticales de colores HSV.
+ *   3. chromascope_lcd_deinit(): cierra el file descriptor del driver.
+ *
+ * No contiene ningún ioctl, open() ni close() directo — toda la interacción
+ * con el hardware está encapsulada en libchromascope_lcd.a.
  */
 static int display_histogram_on_lcd(const uint32_t *histogram, int bins) {
 
-    /* Abrir el nodo de dispositivo del driver LCD.                             */
-    int fd = open(LCD_DEV, O_RDWR);
-    if (fd < 0) {
-        fprintf(stderr, "[Rank 0] No se pudo abrir %s: %s\n", LCD_DEV, strerror(errno));
+    int ret = 0;
+
+    /* Abrir el dispositivo e inicializar el display ST7735 via la biblioteca. */
+    if (chromascope_lcd_init() < 0) {
+        fprintf(stderr, "[Rank 0] No se pudo inicializar la LCD\n");
         return -1;
     }
 
-    /* Inicializar la pantalla: envía las secuencias de configuración al ST7735. */
-    if (ioctl(fd, IOCTL_LCD_INIT) < 0) {
-        fprintf(stderr, "[Rank 0] IOCTL_LCD_INIT falló: %s\n", strerror(errno));
-        close(fd);
-        return -1;
+    /* Dibujar el histograma HSV como barras verticales de colores.
+     * La biblioteca limita n_bins a LCD_MAX_BINS (36) internamente.          */
+    if (lcd_show_histogram(histogram, (uint32_t)bins) < 0) {
+        fprintf(stderr, "[Rank 0] lcd_show_histogram falló\n");
+        ret = -1;
     }
 
-    /* Preparar el comando ioctl con los datos del histograma.                  */
-    struct lcd_cmd_histogram cmd;
-    memset(&cmd, 0, sizeof(cmd));
-
-    /* Limitar el número de bins al máximo soportado por la LCD.               */
-    cmd.n_bins = (bins > LCD_MAX_BINS) ? LCD_MAX_BINS : (unsigned int)bins;
-
-    /* Copiar los conteos del histograma al buffer del comando ioctl.           */
-    for (unsigned int i = 0; i < cmd.n_bins; i++) {
-        cmd.bins[i] = histogram[i];
-    }
-
-    /* Enviar el comando al driver para visualizar el histograma como barras.   */
-    if (ioctl(fd, IOCTL_LCD_SHOW_HISTOGRAM, &cmd) < 0) {
-        fprintf(stderr, "[Rank 0] IOCTL_LCD_SHOW_HISTOGRAM falló: %s\n", strerror(errno));
-        close(fd);
-        return -1;
-    }
-
-    close(fd);   /* liberar el file descriptor del driver LCD                   */
-    return 0;
+    /* Cerrar el dispositivo independientemente del resultado del histograma.  */
+    chromascope_lcd_deinit();
+    return ret;
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
@@ -537,65 +531,57 @@ static int display_histogram_on_lcd(const uint32_t *histogram, int bins) {
  * gpio_completion_sweep() — mueve el servo SG90 como señal visual de que
  * el procesamiento distribuido terminó exitosamente.
  *
- * Secuencia de movimiento:
- *   1. Ir a 0°   (posición inicial)        — 400 ms de pulsos PWM
- *   2. Esperar 500 ms que el servo llegue  — usleep(500000)
- *   3. Ir a 90°  (posición media)          — 800 ms de pulsos PWM
- *   4. Esperar 800 ms que el servo llegue  — usleep(800000)
- *   5. Regresar a 0°                       — 800 ms de pulsos PWM
+ * Secuencia de movimiento (3 pasos):
+ *   1. 0°  por 400 ms → posición inicial
+ *   2. esperar 500 ms que el servo llegue físicamente
+ *   3. 90° por 800 ms → posición media
+ *   4. esperar 800 ms
+ *   5. 0°  por 800 ms → regresar al origen
  *
- * Usa el driver chromascope_gpio con IOCTL_GPIO_SET_SERVO_ANGLE.
- * El driver genera la señal PWM (pulsos de 1000–2000 µs cada 20 ms) directamente
- * desde el kernel usando udelay, sin necesitar hardware PWM dedicado.
+ * Delega completamente en libchromascope_gpio.a:
+ *   chromascope_gpio_init():  abre /dev/chromascope_gpio
+ *   gpio_servo_move():        envía IOCTL_GPIO_SET_SERVO_ANGLE (genera PWM en kernel)
+ *   chromascope_gpio_deinit(): cierra el fd del driver
+ *
+ * No contiene ningún ioctl, open() ni close() directo.
  */
 static int gpio_completion_sweep(void) {
-    const int servo_pin = 18;  /* pin BCM 18 — conectar el cable de señal del SG90 */
+    const int servo_pin = 18;  /* pin BCM 18 — señal de control del SG90       */
+    int ret = 0;
 
-    /* Abrir el nodo de dispositivo del driver GPIO.                            */
-    int fd = open(CHROMASCOPE_DEV, O_RDWR);
-    if (fd < 0) {
-        fprintf(stderr, "[Rank 0] No se pudo abrir %s: %s\n", CHROMASCOPE_DEV, strerror(errno));
+    /* Abrir el dispositivo GPIO via la biblioteca. */
+    if (chromascope_gpio_init() < 0) {
+        fprintf(stderr, "[Rank 0] No se pudo inicializar el driver GPIO\n");
         return -1;
     }
 
-    struct gpio_cmd_servo cmd;
-
-    /* ── Movimiento 1: ir a 0° ── */
-    cmd.pin         = servo_pin;
-    cmd.angle       = 0;      /* ángulo destino: 0°                             */
-    cmd.duration_ms = 400;    /* enviar pulsos PWM durante 400 ms               */
-    if (ioctl(fd, IOCTL_GPIO_SET_SERVO_ANGLE, &cmd) < 0) {
-        fprintf(stderr, "[Rank 0] IOCTL_GPIO_SET_SERVO_ANGLE(0) falló: %s\n", strerror(errno));
-        close(fd);
-        return -1;
+    /* ── Movimiento 1: ir a 0° (400 ms de pulsos PWM) ── */
+    if (gpio_servo_move(servo_pin, 0, 400) < 0) {
+        fprintf(stderr, "[Rank 0] gpio_servo_move(0°) falló\n");
+        ret = -1;
+        goto done;
     }
+    /* Esperar a que el motor llegue físicamente a la posición destino.        */
+    usleep(500000);   /* 500 ms                                                  */
 
-    /* Esperar a que el servo alcance físicamente la posición de 0°.            */
-    usleep(500000);   /* 500 ms = 500,000 µs                                     */
-
-    /* ── Movimiento 2: ir a 90° ── */
-    cmd.angle       = 90;     /* ángulo destino: 90°                            */
-    cmd.duration_ms = 800;    /* 800 ms de pulsos PWM                           */
-    if (ioctl(fd, IOCTL_GPIO_SET_SERVO_ANGLE, &cmd) < 0) {
-        fprintf(stderr, "[Rank 0] IOCTL_GPIO_SET_SERVO_ANGLE(90) falló: %s\n", strerror(errno));
-        close(fd);
-        return -1;
+    /* ── Movimiento 2: ir a 90° (800 ms de pulsos PWM) ── */
+    if (gpio_servo_move(servo_pin, 90, 800) < 0) {
+        fprintf(stderr, "[Rank 0] gpio_servo_move(90°) falló\n");
+        ret = -1;
+        goto done;
     }
-
-    /* Mantener en 90° por un momento.                                          */
     usleep(800000);   /* 800 ms                                                  */
 
     /* ── Movimiento 3: regresar a 0° ── */
-    cmd.angle       = 0;
-    cmd.duration_ms = 800;
-    if (ioctl(fd, IOCTL_GPIO_SET_SERVO_ANGLE, &cmd) < 0) {
-        fprintf(stderr, "[Rank 0] IOCTL_GPIO_SET_SERVO_ANGLE(0) falló: %s\n", strerror(errno));
-        close(fd);
-        return -1;
+    if (gpio_servo_move(servo_pin, 0, 800) < 0) {
+        fprintf(stderr, "[Rank 0] gpio_servo_move(0° retorno) falló\n");
+        ret = -1;
     }
 
-    close(fd);   /* liberar el file descriptor del driver GPIO                   */
-    return 0;
+done:
+    /* Cerrar el dispositivo GPIO independientemente del resultado.            */
+    chromascope_gpio_deinit();
+    return ret;
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
