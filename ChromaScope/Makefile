@@ -28,6 +28,13 @@ MPICC  = mpicc
 # -O2:      optimización de nivel 2 (equilibrio entre velocidad y tamaño binario)
 CFLAGS = -Wall -Wextra -Werror -std=c11 -O2
 
+# ── Rutas a las bibliotecas de hardware ──────────────────────────────────
+# Las bibliotecas estáticas son la ÚNICA interfaz entre el código MPI y los
+# drivers de kernel. Deben compilarse antes que chromascope_mpi.
+LIB_DIR    = lib
+GPIO_LIB   = $(LIB_DIR)/libchromascope_gpio.a
+LCD_LIB    = $(LIB_DIR)/libchromascope_lcd.a
+
 # ── Nombres de los binarios de salida ────────────────────────────────────
 MPI_TARGET        = chromascope_mpi   # binario MPI principal
 IMAGE_TEST_TARGET = image_test        # test de carga/guardado de imágenes PPM
@@ -57,13 +64,17 @@ CRYPTO_SRC = \
 	Crypto/crypto_test.c
 
 # ── Targets PHONY (no generan archivos con ese nombre) ───────────────────
-.PHONY: all clean mpi image crypto run-local test-image test-crypto
+.PHONY: all clean mpi image crypto run-local test-image test-crypto libs
 
-# Target por defecto: compilar los tres binarios
-all: mpi image crypto
+# Target por defecto: compilar las bibliotecas + los tres binarios
+all: libs mpi image crypto
 
-# Alias para compilar solo el binario MPI
-mpi: $(MPI_TARGET)
+# Compilar primero las bibliotecas de hardware (prerequisito de mpi)
+libs:
+	$(MAKE) -C $(LIB_DIR)
+
+# Alias para compilar solo el binario MPI (requiere las libs)
+mpi: libs $(MPI_TARGET)
 
 # Alias para compilar solo el test de imagen
 image: $(IMAGE_TEST_TARGET)
@@ -72,10 +83,13 @@ image: $(IMAGE_TEST_TARGET)
 crypto: $(CRYPTO_TEST_TARGET)
 
 # ── Regla de compilación del binario MPI ─────────────────────────────────
-# $(MPICC) compila y enlaza todos los .c de MPI_SRC en un único ejecutable.
-# -Iserver -Inodes -Iimage -Icrypto: rutas de búsqueda de headers (.h)
-$(MPI_TARGET): $(MPI_SRC)
-	$(MPICC) $(CFLAGS) -Iserver -Inodes -Iimage -Icrypto -o $@ $(MPI_SRC)
+# $(MPICC) compila y enlaza todos los .c de MPI_SRC con las bibliotecas de hardware.
+# -Ilib: buscar libchromascope_lcd.h y libchromascope_gpio.h en lib/
+# -Llib: indicar al enlazador la ruta de las bibliotecas .a
+# -lchromascope_lcd -lchromascope_gpio: enlazar las bibliotecas de hardware estáticas
+# Las bibliotecas deben ir AL FINAL de la línea de enlazado (convención de ld).
+$(MPI_TARGET): $(MPI_SRC) $(LCD_LIB) $(GPIO_LIB)
+	$(MPICC) $(CFLAGS) -Ilib -o $@ $(MPI_SRC) -L$(LIB_DIR) -lchromascope_lcd -lchromascope_gpio
 
 # ── Regla de compilación del test de imagen ──────────────────────────────
 $(IMAGE_TEST_TARGET): $(IMAGE_SRC)
@@ -102,6 +116,7 @@ test-crypto: $(CRYPTO_TEST_TARGET)
 # ── Limpieza de artefactos generados ─────────────────────────────────────
 # Elimina binarios y archivos de salida producidos por las pruebas
 clean:
+	$(MAKE) -C $(LIB_DIR) clean
 	rm -f $(MPI_TARGET)
 	rm -f $(IMAGE_TEST_TARGET)
 	rm -f $(CRYPTO_TEST_TARGET)

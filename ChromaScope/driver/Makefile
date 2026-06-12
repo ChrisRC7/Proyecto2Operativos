@@ -45,11 +45,16 @@ CC     := gcc
 # -std=c11: estándar C 2011
 CFLAGS := -Wall -Wextra -std=c11
 
-# ── Targets PHONY (no corresponden a archivos físicos) ───────────────────
-.PHONY: all modules test clean load unload run dmesg
+# Rutas a las bibliotecas estáticas generadas en ../lib/
+# test_lcd se enlaza contra libchromascope_lcd.a (la única interfaz con el driver).
+LIB_DIR := ../lib
+LCD_LIB := $(LIB_DIR)/libchromascope_lcd.a
 
-# Target por defecto: compilar módulos del kernel Y el programa de prueba
-all: modules test
+# ── Targets PHONY (no corresponden a archivos físicos) ───────────────────
+.PHONY: all modules test clean load unload run dmesg libs
+
+# Target por defecto: compilar bibliotecas + módulos del kernel + el test
+all: libs modules test
 
 # ── Compilar los módulos del kernel ──────────────────────────────────────
 # $(MAKE) -C $(KDIR): invocar el make del árbol del kernel con su Makefile
@@ -58,16 +63,27 @@ all: modules test
 modules:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
+# ── Construir las bibliotecas estáticas en ../lib/ ───────────────────────
+# Delega en el Makefile de lib/; las bibliotecas son prerequisito del test.
+libs:
+	$(MAKE) -C $(LIB_DIR)
+
 # ── Compilar el programa de prueba userspace ─────────────────────────────
-# Depende de test_lcd.c y de ambos headers para detectar cambios en la API.
-test: $(TEST_SRC) chromascope_lcd.h chromascope_gpio.h
-	$(CC) $(CFLAGS) -o $(TEST_BIN) $(TEST_SRC)
+# test_lcd DEPENDE de la biblioteca LCD estática para enlazarse.
+# -I$(LIB_DIR): buscar libchromascope_lcd.h en el directorio de bibliotecas.
+# -L$(LIB_DIR): indicar al enlazador dónde está libchromascope_lcd.a.
+# -lchromascope_lcd: enlazar la biblioteca estática.
+# El flag -Wno-unused-function evita warning por la función check() si se
+# activan -Wextra con versiones de GCC que la marcan como "defined but not used".
+test: $(TEST_SRC) $(LCD_LIB) chromascope_lcd.h
+	$(CC) $(CFLAGS) -I$(LIB_DIR) -o $(TEST_BIN) $(TEST_SRC) -L$(LIB_DIR) -lchromascope_lcd
 
 # ── Limpiar todos los artefactos generados ───────────────────────────────
 # $(MAKE) -C $(KDIR) M=$(PWD) clean: limpia los .o, .ko, .mod.c del módulo
 # rm -f $(TEST_BIN): elimina el ejecutable de prueba
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	$(MAKE) -C $(LIB_DIR) clean
 	rm -f $(TEST_BIN)
 
 # ── Cargar los módulos en el kernel ──────────────────────────────────────
