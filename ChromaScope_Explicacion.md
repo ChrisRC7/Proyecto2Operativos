@@ -11,17 +11,18 @@
 3. [Flujo de ejecución completo](#3-flujo-de-ejecución-completo)
 4. [Driver GPIO: `chromascope_gpio.c`](#4-driver-gpio-chromascope_gpioc)
 5. [Driver LCD: `chromascope_lcd.c`](#5-driver-lcd-chromascope_lcdc)
-6. [Protocolo MPI: `mpi_protocol.h`](#6-protocolo-mpi-mpi_protocolh)
-7. [Master: `main_server.c`](#7-master-main_serverc)
-8. [Worker: `worker.c`](#8-worker-workerc)
-9. [Monitor de recursos: `resource_monitor.c`](#9-monitor-de-recursos-resource_monitorc)
-10. [Imagen PPM: `ppm.c`](#10-imagen-ppm-ppmc)
-11. [Histograma HSV: `histogram.c`](#11-histograma-hsv-histogramc)
-12. [Filtro RGB: `rgb_filter.c`](#12-filtro-rgb-rgb_filterc)
-13. [Criptografía ChaCha20: `chacha20.c`](#13-criptografía-chacha20-chacha20c)
-14. [Scripts de despliegue](#14-scripts-de-despliegue)
-15. [Sistema de compilación: Makefiles](#15-sistema-de-compilación-makefiles)
-16. [Preguntas frecuentes de defensa](#16-preguntas-frecuentes-de-defensa)
+6. [Bibliotecas de usuario: `libchromascope_gpio.a` y `libchromascope_lcd.a`](#6-bibliotecas-de-usuario-libchromascope_gpioa-y-libchromascope_lcda)
+7. [Protocolo MPI: `mpi_protocol.h`](#7-protocolo-mpi-mpi_protocolh)
+8. [Master: `main_server.c`](#8-master-main_serverc)
+9. [Worker: `worker.c`](#9-worker-workerc)
+10. [Monitor de recursos: `resource_monitor.c`](#10-monitor-de-recursos-resource_monitorc)
+11. [Imagen PPM: `ppm.c`](#11-imagen-ppm-ppmc)
+12. [Histograma HSV: `histogram.c`](#12-histograma-hsv-histogramc)
+13. [Filtro RGB: `rgb_filter.c`](#13-filtro-rgb-rgb_filterc)
+14. [Criptografía ChaCha20: `chacha20.c`](#14-criptografía-chacha20-chacha20c)
+15. [Scripts de despliegue](#15-scripts-de-despliegue)
+16. [Sistema de compilación: Makefiles](#16-sistema-de-compilación-makefiles)
+17. [Preguntas frecuentes de defensa](#17-preguntas-frecuentes-de-defensa)
 
 ---
 
@@ -36,6 +37,8 @@ ChromaScope es un sistema de **procesamiento distribuido de imágenes** que comb
 | Procesamiento de imagen | Histograma HSV + Filtro RGB | Analizar y transformar la imagen |
 | Driver de kernel (GPIO) | Módulo Linux `.ko` | Controlar el servo SG90 directamente |
 | Driver de kernel (LCD) | Módulo Linux `.ko` | Mostrar el histograma en pantalla TFT |
+| **Biblioteca GPIO** | **`libchromascope_gpio.a`** | **Única interfaz autorizada con el driver GPIO** |
+| **Biblioteca LCD** | **`libchromascope_lcd.a`** | **Única interfaz autorizada con el driver LCD** |
 | Red VPN | Tailscale | Conectar nodos en diferentes redes físicas |
 
 ### ¿Por qué MPI y no threads?
@@ -47,20 +50,34 @@ Los **threads** comparten memoria dentro de un proceso. Para distribuir el traba
 ## 2. Arquitectura del clúster
 
 ```
-┌──────────────────────────────────────────────┐
-│             RASPBERRY PI 4 (ARM64)            │
-│                                               │
-│   Rank 0 — Master (main_server.c)             │
-│   ┌────────────────────────────────────┐      │
-│   │  Lee imagen PPM                    │      │
-│   │  Cifra franjas con ChaCha20        │      │
-│   │  Distribuye trabajo via MPI_Send   │      │
-│   │  Recolecta resultados MPI_Recv     │      │
-│   │  Consolida histograma MPI_Reduce   │      │
-│   │  Muestra histograma en LCD         │      │  ─── /dev/chromascope ──► ST7735 TFT
-│   │  Mueve servo SG90                  │      │  ─── /dev/chromascope_gpio ► SG90
-│   └────────────────────────────────────┘      │
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│                RASPBERRY PI 4 (ARM64)                 │
+│                                                       │
+│   Rank 0 — Master (main_server.c)                     │
+│   ┌──────────────────────────────────────────┐        │
+│   │  Lee imagen PPM                          │        │
+│   │  Cifra franjas con ChaCha20              │        │
+│   │  Distribuye trabajo via MPI_Send         │        │
+│   │  Recolecta resultados MPI_Recv           │        │
+│   │  Consolida histograma MPI_Reduce         │        │
+│   │  Muestra histograma en LCD               │        │
+│   │  Mueve servo SG90                        │        │
+│   └──────┬───────────────────┬───────────────┘        │
+│          │                   │                         │
+│   ┌──────▼──────┐    ┌───────▼──────┐                 │
+│   │libchroma    │    │libchroma     │  ← únicas        │
+│   │scope_lcd.a  │    │scope_gpio.a  │    interfaces    │
+│   └──────┬──────┘    └───────┬──────┘    con drivers   │
+│          │                   │                         │
+│   /dev/chromascope    /dev/chromascope_gpio            │
+│          │ (ioctl)           │ (ioctl)                 │
+│   ┌──────▼──────┐    ┌───────▼──────┐                 │
+│   │chromascope  │    │chromascope   │  ← módulos .ko   │
+│   │_lcd.ko      │    │_gpio.ko      │    en el kernel  │
+│   └──────┬──────┘    └───────┬──────┘                 │
+│          │                   │                         │
+│       ST7735 TFT          Servo SG90                   │
+└──────────────────────────────────────────────────────┘
          │                │                │
     Tailscale VPN (100.x.x.x)
          │                │                │
@@ -102,8 +119,8 @@ mpirun -np 4 ./chromascope_mpi test_image.ppm
         │   5. Para cada worker:
         │      MPI_Recv(filtered, TAG=103)         ← recibir franja filtrada
         │   6. ppm_write("cluster_filtered.ppm")  ← guardar imagen filtrada
-        │   7. display_histogram_on_lcd()          ← ioctl al driver LCD
-        │   8. gpio_completion_sweep()             ← ioctl al driver GPIO (servo)
+        │   7. display_histogram_on_lcd()          ← lib LCD → driver LCD (ST7735)
+        │   8. gpio_completion_sweep()             ← lib GPIO → driver GPIO (servo)
         │
         ├─ Rank 1 (Worker 1):
         │   1. MPI_Recv(metadata, TAG=100)         ← esperar instrucciones
@@ -187,20 +204,29 @@ El servo SG90 requiere una señal **PWM de 50 Hz** (período = 20 ms):
 
 El driver genera esta señal con `udelay()` (busy-wait de microsegundos) directamente desde el kernel, sin necesitar un periférico PWM dedicado.
 
-### Interfaz ioctl
+### Interfaz ioctl (interna — acceso solo a través de la biblioteca)
+
+Los comandos ioctl se definen en `chromascope_gpio.h` con macros `_IOW`/`_IOR`/`_IOWR` que codifican el número mágico (`'C'`), el número de comando y el tamaño del tipo en un entero de 32 bits:
 
 ```c
-// Desde espacio de usuario:
-int fd = open("/dev/chromascope_gpio", O_RDWR);
-
-int pin = 18;
-ioctl(fd, IOCTL_GPIO_SET_OUTPUT, &pin);  // configurar como salida
-
-struct gpio_cmd_servo cmd = { .pin=18, .angle=90, .duration_ms=500 };
-ioctl(fd, IOCTL_GPIO_SET_SERVO_ANGLE, &cmd);  // mover servo
+#define IOCTL_GPIO_SET_OUTPUT      _IOW('C', 1, int)
+#define IOCTL_GPIO_SET_HIGH        _IOW('C', 3, int)
+#define IOCTL_GPIO_SET_SERVO_ANGLE _IOW('C', 6, struct gpio_cmd_servo)
 ```
 
-Los comandos ioctl se definen con macros `_IOW`/`_IOR`/`_IOWR` que codifican el número mágico (`'C'`), el número de comando y el tamaño del tipo en un entero de 32 bits.
+**El código de aplicación NUNCA llama a ioctl directamente.** Toda interacción pasa por `libchromascope_gpio.a`:
+
+```c
+// Correcto: usar la biblioteca (encapsula el ioctl internamente)
+chromascope_gpio_init();
+gpio_set_output(18);
+gpio_servo_move(18, 90, 500);
+chromascope_gpio_deinit();
+
+// Incorrecto: acceso directo prohibido en el código de aplicación
+// int fd = open("/dev/chromascope_gpio", O_RDWR);  // ← NO
+// ioctl(fd, IOCTL_GPIO_SET_SERVO_ANGLE, &cmd);     // ← NO
+```
 
 ---
 
@@ -283,7 +309,143 @@ La pantalla necesita ~20 comandos de configuración al encenderse (frame rate, c
 
 ---
 
-## 6. Protocolo MPI: `mpi_protocol.h`
+## 6. Bibliotecas de usuario: `libchromascope_gpio.a` y `libchromascope_lcd.a`
+
+### ¿Por qué una biblioteca entre la aplicación y el driver?
+
+El proyecto establece un **principio de encapsulamiento**: el código de aplicación (`main_server.c`, `test_lcd.c`) **nunca llama a `ioctl` directamente**. Toda la interacción con el hardware pasa obligatoriamente por las funciones de la biblioteca. Esto garantiza:
+
+1. **Interfaz estable**: si el número o tipo de un ioctl cambia, solo hay que modificar la biblioteca — el código de aplicación no cambia.
+2. **Manejo de errores centralizado**: los mensajes de error del dispositivo se imprimen en un solo lugar.
+3. **Ocultamiento del fd**: el file descriptor del dispositivo es un detalle de implementación privado; el código cliente no lo ve ni puede corromperlo.
+4. **Facilidad de prueba**: es posible reemplazar la biblioteca con una versión de simulación (stub) para pruebas sin hardware real.
+
+### ¿Qué es un archivo `.a` (biblioteca estática)?
+
+Un archivo `.a` es un **archivo de biblioteca estática** (static archive). Es un contenedor de archivos `.o` (objetos compilados) creado con la herramienta `ar`:
+
+```bash
+ar rcs libchromascope_lcd.a libchromascope_lcd.o
+#  ^^^
+#  r = insert/replace el .o en el archivo
+#  c = create si no existe
+#  s = crear índice de símbolos (como ranlib)
+```
+
+Cuando el enlazador (`ld`) encuentra `-lchromascope_lcd`, busca `libchromascope_lcd.a` en el path de bibliotecas (`-Llib`) y **copia** el código necesario directamente en el ejecutable final. El ejecutable resultante **no depende en tiempo de ejecución** del `.a` — el código ya está incluido.
+
+Diferencia entre estática (`.a`) y dinámica (`.so`):
+
+| Característica | Estática `.a` | Dinámica `.so` |
+|---|---|---|
+| El código se incluye en | El ejecutable (en tiempo de enlazado) | Archivo separado (en tiempo de ejecución) |
+| Tamaño del ejecutable | Mayor | Menor |
+| Dependencias en runtime | Ninguna | Necesita el `.so` en el sistema |
+| Velocidad de carga | Sin overhead | Pequeño overhead de dlopen |
+| Uso en este proyecto | Sí | No |
+
+### API de `libchromascope_gpio.a`
+
+Archivo de cabecera: `lib/libchromascope_gpio.h`
+
+```c
+// ── Ciclo de vida ──────────────────────────────────────────────────────
+int  chromascope_gpio_init(void);    // abre /dev/chromascope_gpio
+void chromascope_gpio_deinit(void);  // cierra el fd interno
+
+// ── Control de función de pin ──────────────────────────────────────────
+int gpio_set_output(int pin);  // GPFSEL = 001 → salida digital
+int gpio_set_input(int pin);   // GPFSEL = 000 → entrada (alta impedancia)
+
+// ── Control de nivel ───────────────────────────────────────────────────
+int gpio_set_high(int pin);          // GPSET0: pin a 3.3 V
+int gpio_set_low(int pin);           // GPCLR0: pin a 0 V
+int gpio_read(int pin, int *level);  // GPLEV0: leer nivel actual (0 ó 1)
+
+// ── Control de servo ───────────────────────────────────────────────────
+int gpio_servo_move(int pin, int angle, int duration_ms);
+//  Genera pulsos PWM de 50 Hz en el kernel durante duration_ms ms.
+//  angle: 0-180° → pulso de 1000-2000 µs. La función BLOQUEA durante duration_ms.
+```
+
+### API de `libchromascope_lcd.a`
+
+Archivo de cabecera: `lib/libchromascope_lcd.h`
+
+```c
+// ── Ciclo de vida ──────────────────────────────────────────────────────
+int  chromascope_lcd_init(void);    // abre /dev/chromascope + IOCTL_LCD_INIT
+void chromascope_lcd_deinit(void);  // cierra el fd interno
+
+// ── Primitivas de dibujo ───────────────────────────────────────────────
+int lcd_fill_screen(lcd_color_t color);
+
+int lcd_draw_pixel(uint16_t x, uint16_t y, lcd_color_t color);
+
+int lcd_draw_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                  lcd_color_t color);
+
+int lcd_show_histogram(const uint32_t *bins, uint32_t n_bins);
+//  Limpia la pantalla y dibuja n_bins barras verticales.
+//  El color de cada barra es el matiz HSV del bin (bin i → i×360°/n_bins).
+//  La altura de cada barra es proporcional a bins[i]/max(bins).
+```
+
+El tipo `lcd_color_t` es un alias de `uint16_t` para colores RGB565. El header re-exporta las constantes `LCD_RED`, `LCD_BLACK`, `LCD_WIDTH`, `LCD_MAX_BINS`, etc., por lo que el código cliente solo necesita incluir `libchromascope_lcd.h`.
+
+### Estado interno: el fd como variable estática de módulo
+
+Ambas bibliotecas mantienen el file descriptor en una variable `static int fd = -1` que es **invisible al código cliente**:
+
+```c
+// libchromascope_lcd.c (privado):
+static int fd_lcd = -1;   // solo accesible dentro de este .c
+
+// Las funciones verifican fd_lcd >= 0 antes de cualquier ioctl:
+#define CHECK_OPEN() do { if (fd_lcd < 0) { errno = ENODEV; return -1; } } while(0)
+```
+
+Esto implementa el patrón **opaque handle**: el cliente no puede cerrar el fd accidentalmente, no puede pasarlo a funciones externas y no necesita saber que existe.
+
+### Cómo enlazar las bibliotecas
+
+```makefile
+# En el Makefile de la aplicación:
+gcc main.c -Ilib -Llib -lchromascope_lcd -lchromascope_gpio -o app
+#           ^^^^  ^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#           -I: buscar headers en lib/
+#           -L: buscar .a en lib/
+#           -l: enlazar con libchromascope_lcd.a y libchromascope_gpio.a
+```
+
+Las bibliotecas van **al final** de la línea de enlazado. El enlazador `ld` las procesa en orden: primero resuelve referencias del código objeto, luego busca las definiciones en los `.a`.
+
+### Ejemplo de uso completo
+
+```c
+#include "lib/libchromascope_lcd.h"
+#include "lib/libchromascope_gpio.h"
+
+int main(void) {
+    // Inicializar ambos dispositivos
+    if (chromascope_lcd_init() < 0) return 1;
+    if (chromascope_gpio_init() < 0) { chromascope_lcd_deinit(); return 1; }
+
+    // Usar el hardware a través de funciones de alto nivel
+    lcd_fill_screen(LCD_BLACK);
+    lcd_draw_rect(10, 10, 80, 50, LCD_RED);
+    gpio_servo_move(18, 90, 500);   // mover servo 90°, 500 ms de pulsos
+
+    // Liberar al terminar
+    chromascope_lcd_deinit();
+    chromascope_gpio_deinit();
+    return 0;
+}
+```
+
+---
+
+## 7. Protocolo MPI: `mpi_protocol.h`
 
 ### Tags de mensaje
 
@@ -326,7 +488,7 @@ Se envía como `MPI_BYTE` (bytes crudos) porque es una struct plana sin punteros
 
 ---
 
-## 7. Master: `main_server.c`
+## 8. Master: `main_server.c`
 
 ### Medición de tiempo con `MPI_Wtime()`
 
@@ -358,7 +520,7 @@ Esto permite comparar el speedup con 1, 2, 3 y 4 nodos sin contaminación de I/O
 
 ---
 
-## 8. Worker: `worker.c`
+## 9. Worker: `worker.c`
 
 ### ¿Por qué el histograma se calcula ANTES del filtro?
 
@@ -386,7 +548,7 @@ Todos los procesos (master + workers) **deben llamar** a `MPI_Reduce` en el mism
 
 ---
 
-## 9. Monitor de recursos: `resource_monitor.c`
+## 10. Monitor de recursos: `resource_monitor.c`
 
 ### `/proc/meminfo`
 
@@ -415,7 +577,7 @@ Un **load average de 1.0** en una CPU de 4 núcleos significa que el 25% de la c
 
 ---
 
-## 10. Imagen PPM: `ppm.c`
+## 11. Imagen PPM: `ppm.c`
 
 ### Formato PPM P6 (binary portable pixmap)
 
@@ -443,7 +605,7 @@ Sin esta protección, una imagen maliciosa con dimensiones exageradas podría pr
 
 ---
 
-## 11. Histograma HSV: `histogram.c`
+## 12. Histograma HSV: `histogram.c`
 
 ### ¿Por qué HSV y no RGB?
 
@@ -485,7 +647,7 @@ Con 36 bins, cada bin cubre **10° de arco**:
 
 ---
 
-## 12. Filtro RGB: `rgb_filter.c`
+## 13. Filtro RGB: `rgb_filter.c`
 
 ### Inversión de colores (negativo fotográfico)
 
@@ -513,7 +675,7 @@ Los parámetros `r_gain`, `g_gain`, `b_gain` están en la API del filtro para un
 
 ---
 
-## 13. Criptografía ChaCha20: `chacha20.c`
+## 14. Criptografía ChaCha20: `chacha20.c`
 
 ### ¿Qué es un cifrador de flujo?
 
@@ -571,7 +733,7 @@ output = input XOR keystream(key, nonce, counter)
 
 ---
 
-## 14. Scripts de despliegue
+## 15. Scripts de despliegue
 
 ### `sync_sources.sh` — Sincronizar código fuente
 
@@ -621,7 +783,27 @@ Sin estos flags, MPI intentaría usar todas las interfaces de red y fallaría en
 
 ---
 
-## 15. Sistema de compilación: Makefiles
+## 16. Sistema de compilación: Makefiles
+
+### `lib/Makefile` — Bibliotecas estáticas de hardware
+
+Este Makefile compila las dos bibliotecas `.a` que encapsulan los drivers:
+
+```makefile
+# Compilar el objeto de la biblioteca LCD
+gcc -Wall -Wextra -Werror -std=c11 -O2 -fPIC -c libchromascope_lcd.c -o libchromascope_lcd.o
+
+# Empaquetar en archivo estático
+ar rcs libchromascope_lcd.a libchromascope_lcd.o
+```
+
+El flag `-fPIC` (Position Independent Code) genera código reubicable, buena práctica aunque aquí se use enlazado estático.
+
+Targets:
+- `make libs` → compila ambas `.a`
+- `make libgpio` → solo `libchromascope_gpio.a`
+- `make liblcd` → solo `libchromascope_lcd.a`
+- `make clean` → elimina `.o` y `.a`
 
 ### `ChromaScope/Makefile` — Binarios de aplicación
 
@@ -632,6 +814,23 @@ Sin estos flags, MPI intentaría usar todas las interfaces de red y fallaría en
 | `-Werror` | Las advertencias se tratan como errores (código limpio obligatorio) |
 | `-std=c11` | Estándar ISO C 2011 |
 | `-O2` | Optimización nivel 2: inlining, vectorización, eliminación de código muerto |
+| `-Ilib` | Buscar headers de la biblioteca en `lib/` |
+| `-Llib` | Buscar archivos `.a` en `lib/` para el enlazado |
+| `-lchromascope_lcd` | Enlazar con `lib/libchromascope_lcd.a` |
+| `-lchromascope_gpio` | Enlazar con `lib/libchromascope_gpio.a` |
+
+El target `mpi` del Makefile construye primero las bibliotecas y luego enlaza el binario MPI:
+
+```makefile
+# Orden correcto de dependencias:
+all: libs mpi image crypto
+
+libs:
+    $(MAKE) -C lib
+
+$(MPI_TARGET): $(MPI_SRC) $(LCD_LIB) $(GPIO_LIB)
+    $(MPICC) $(CFLAGS) -Ilib -o $@ $(MPI_SRC) -Llib -lchromascope_lcd -lchromascope_gpio
+```
 
 **`mpicc` vs `gcc`**: `mpicc` es un wrapper de GCC que automáticamente agrega las flags de inclusión y enlazado de la librería MPI. Equivale a:
 ```bash
@@ -650,9 +849,16 @@ modules:
 
 El sistema de build del kernel usa su propio Makefile. El comando `make -C $(KDIR)` invoca el Makefile del kernel, y `M=$(PWD)` le indica dónde están los fuentes del módulo externo. El resultado es el archivo `chromascope_lcd.ko`.
 
+El target `test` del driver también compila `test_lcd` enlazando con la biblioteca:
+
+```makefile
+test: test_lcd.c $(LCD_LIB) chromascope_lcd.h
+    gcc $(CFLAGS) -I$(LIB_DIR) -o test_lcd test_lcd.c -L$(LIB_DIR) -lchromascope_lcd
+```
+
 ---
 
-## 16. Preguntas frecuentes de defensa
+## 17. Preguntas frecuentes de defensa
 
 ### ¿Por qué usar MPI y no sockets TCP directos?
 
@@ -686,6 +892,50 @@ El benchmark de `run_cluster.sh` mide el tiempo real (wall-clock) entre el prime
 ### ¿Qué es `ioremap` y por qué es necesario?
 
 En Linux, los procesos del kernel también usan **direcciones virtuales**, no físicas. La MMU protege el acceso a memoria: no se puede leer `0xFE200000` directamente aunque sea la dirección física de los registros GPIO. `ioremap` pide al kernel que cree un mapeo en el espacio de direcciones virtuales del kernel que apunte a esa dirección física, configurando las entradas de la tabla de páginas correspondientes con atributos de I/O (no cacheable, no especulativo).
+
+### ¿Por qué crear una biblioteca `.a` en lugar de llamar a ioctl directamente?
+
+El enunciado del proyecto pide explícitamente una biblioteca como **única capa** que interactúa con el driver. Esto implementa el principio de **separación de responsabilidades** (Separation of Concerns):
+- El **driver** sabe cómo hablar con el hardware (registros del BCM2711, protocolo SPI).
+- La **biblioteca** sabe cómo traducir operaciones de alto nivel (`lcd_fill_screen`) en comandos ioctl.
+- La **aplicación** solo conoce operaciones de dominio (`mostrar histograma`, `mover servo`).
+
+Si en el futuro el driver cambia (p.ej., se agrega un nuevo ioctl), solo hay que actualizar la biblioteca; el código de la aplicación permanece igual.
+
+### ¿Qué diferencia hay entre `.a` y `.so`?
+
+Un `.a` (estático) se **copia** dentro del ejecutable en tiempo de enlazado — el binario final es autosuficiente. Un `.so` (dinámico/compartido) se **carga** en tiempo de ejecución desde el sistema de archivos. Para este proyecto se usa `.a` porque:
+1. Simplifica el despliegue (un solo binario, sin gestionar dependencias `.so`).
+2. El código de la biblioteca es pequeño (< 1 KB), por lo que el overhead de tamaño es insignificante.
+3. En sistemas embebidos como la RPi a menudo se prefiere estático para evitar problemas de versiones de librerías.
+
+### ¿Qué pasa si se llama a una función de la biblioteca sin haber llamado a `init()`?
+
+La variable interna `fd_lcd` (o `fd_gpio`) vale `-1`. Todas las funciones tienen la macro `CHECK_OPEN()` al inicio:
+
+```c
+#define CHECK_OPEN() do { if (fd_lcd < 0) { errno = ENODEV; return -1; } } while(0)
+```
+
+La función retorna `-1` inmediatamente con `errno = ENODEV` ("No such device"). No hay crash, no hay comportamiento indefinido — el error queda capturado y reportado.
+
+### ¿Por qué el fd del dispositivo es una variable `static` dentro del `.c`?
+
+La palabra clave `static` en una variable de alcance de archivo (file scope) limita su visibilidad al archivo `.c` donde está declarada. El código cliente **no puede** acceder a `fd_lcd` desde fuera de `libchromascope_lcd.c`. Esto implementa **encapsulamiento** igual que los campos privados en C++, pero en C puro.
+
+### ¿Por qué usar `goto` para el manejo de errores en `module_init`?
+
+El patrón `goto encadenado` es el idioma estándar en el kernel Linux para manejar múltiples recursos:
+
+```c
+if (falla_paso_3) goto err_paso2;   // deshacer solo pasos 1 y 2
+// ...
+err_paso2: liberar_recurso_2();
+err_paso1: liberar_recurso_1();
+return error;
+```
+
+Es equivalente a `defer` en Go o `finally` en Java, pero sin soporte del lenguaje. La alternativa (funciones auxiliares de limpieza o variables de estado booleano) produce código más largo y difícil de auditar en el kernel, donde la corrección del manejo de errores es crítica.
 
 ### ¿Por qué usar `udelay` en lugar de `msleep` en el driver?
 
