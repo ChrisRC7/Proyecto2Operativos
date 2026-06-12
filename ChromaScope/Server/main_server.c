@@ -75,6 +75,7 @@ int main(int argc, char **argv) {
 
 static void run_master(int world_size, const char *image_path) {
     PPMImage image;
+    const int bench_mode = (getenv("CHROMA_BENCH") != NULL);
 
     if (ppm_read(image_path, &image) != 0) {
         fprintf(stderr, "[Rank 0] Error: no se pudo leer la imagen PPM: %s\n", image_path);
@@ -132,7 +133,9 @@ static void run_master(int world_size, const char *image_path) {
     int base_rows = height / num_workers;
     int remaining_rows = height % num_workers;
     int current_start_row = 0;
-
+    
+    /* ── Inicio de la medicion: justo antes de cifrar y enviar ── */
+    double t_start = MPI_Wtime();
     for (int worker_rank = 1; worker_rank < world_size; worker_rank++) {
         int worker_index = worker_rank - 1;
 
@@ -236,8 +239,10 @@ static void run_master(int world_size, const char *image_path) {
      * Guardar archivo cifrado y descifrado de verificación.
      * cluster_encrypted_pixels.bin no es un PPM completo, solo los bytes RGB cifrados.
      */
-    if (write_binary_file("cluster_encrypted_pixels.bin", encrypted_pixels, total_bytes) == 0) {
-        printf("[Rank 0] Pixeles cifrados guardados como cluster_encrypted_pixels.bin\n");
+    if (!bench_mode) {
+        if (write_binary_file("cluster_encrypted_pixels.bin", encrypted_pixels, total_bytes) == 0) {
+            printf("[Rank 0] Pixeles cifrados guardados como cluster_encrypted_pixels.bin\n");
+        }
     }
 
     PPMImage decrypted_image;
@@ -297,56 +302,61 @@ static void run_master(int world_size, const char *image_path) {
                metadata.start_row,
                metadata.rows);
     }
+    /* ── Fin de la medicion: todo el trabajo MPI completado ── */
+    double t_end = MPI_Wtime();
+    printf("tiempo=%.4f\n", t_end - t_start);
+    fflush(stdout);
 
-    PPMImage filtered_image;
-    filtered_image.width = width;
-    filtered_image.height = height;
-    filtered_image.pixels = filtered_pixels;
-
-    if (ppm_write("cluster_filtered_rgb.ppm", &filtered_image) == 0) {
-        printf("[Rank 0] Imagen filtrada RGB reconstruida guardada como cluster_filtered_rgb.ppm\n");
-    } else {
-        fprintf(stderr, "[Rank 0] Error: no se pudo guardar cluster_filtered_rgb.ppm\n");
+    /* Escritura de imagen filtrada y perifericos: solo en modo normal */
+    if (!bench_mode) {
+        PPMImage filtered_image;
+        filtered_image.width  = width;
+        filtered_image.height = height;
+        filtered_image.pixels = filtered_pixels;
+ 
+        if (ppm_write("cluster_filtered_rgb.ppm", &filtered_image) == 0) {
+            printf("[Rank 0] Imagen filtrada RGB reconstruida guardada como cluster_filtered_rgb.ppm\n");
+        } else {
+            fprintf(stderr, "[Rank 0] Error: no se pudo guardar cluster_filtered_rgb.ppm\n");
+        }
+ 
+        printf("\n[Rank 0] Histograma HSV consolidado basado en imagen original:\n");
+        histogram_print(global_histogram, HIST_BINS);
+ 
+        int dominant_bin = histogram_find_dominant_bin(global_histogram, HIST_BINS);
+        printf("\n[Rank 0] Bin dominante: %d\n", dominant_bin);
+        printf("[Rank 0] Rango aproximado de hue: %d° - %d°\n",
+               dominant_bin * 10, (dominant_bin + 1) * 10);
+ 
+        uint64_t total_histogram_pixels = 0;
+        for (int i = 0; i < HIST_BINS; i++) {
+            total_histogram_pixels += global_histogram[i];
+        }
+ 
+        printf("[Rank 0] Pixeles esperados: %d\n", width * height);
+        printf("[Rank 0] Pixeles en histograma: %lu\n", total_histogram_pixels);
+ 
+        if (total_histogram_pixels == (uint64_t)(width * height)) {
+            printf("[Rank 0] Validacion OK: histograma cubre toda la imagen original.\n");
+        } else {
+            printf("[Rank 0] Validacion FALLIDA: histograma no coincide con pixeles esperados.\n");
+        }
+ 
+        printf("\n[Rank 0] Integracion filtro RGB + histograma original + MPI completada.\n");
+ 
+        if (display_histogram_on_lcd(global_histogram, HIST_BINS) == 0) {
+            printf("[Rank 0] Histograma mostrado en la LCD ST7735.\n");
+        } else {
+            printf("[Rank 0] No se pudo mostrar el histograma en la LCD.\n");
+        }
+ 
+        if (gpio_completion_sweep() == 0) {
+            printf("[Rank 0] Barrido GPIO de finalizacion completado.\n");
+        } else {
+            printf("[Rank 0] No se pudo ejecutar el barrido GPIO.\n");
+        }
     }
 
-    printf("\n[Rank 0] Histograma HSV consolidado basado en imagen original:\n");
-    histogram_print(global_histogram, HIST_BINS);
-
-    int dominant_bin = histogram_find_dominant_bin(global_histogram, HIST_BINS);
-
-    printf("\n[Rank 0] Bin dominante: %d\n", dominant_bin);
-    printf("[Rank 0] Rango aproximado de hue: %d° - %d°\n",
-           dominant_bin * 10,
-           (dominant_bin + 1) * 10);
-
-    uint64_t total_histogram_pixels = 0;
-
-    for (int i = 0; i < HIST_BINS; i++) {
-        total_histogram_pixels += global_histogram[i];
-    }
-
-    printf("[Rank 0] Pixeles esperados: %d\n", width * height);
-    printf("[Rank 0] Pixeles en histograma: %lu\n", total_histogram_pixels);
-
-    if (total_histogram_pixels == (uint64_t)(width * height)) {
-        printf("[Rank 0] Validacion OK: histograma cubre toda la imagen original.\n");
-    } else {
-        printf("[Rank 0] Validacion FALLIDA: histograma no coincide con pixeles esperados.\n");
-    }
-
-    printf("\n[Rank 0] Integracion filtro RGB + histograma original + MPI completada.\n");
-
-    if (display_histogram_on_lcd(global_histogram, HIST_BINS) == 0) {
-        printf("[Rank 0] Histograma mostrado en la LCD ST7735.\n");
-    } else {
-        printf("[Rank 0] No se pudo mostrar el histograma en la LCD.\n");
-    }
-
-    if (gpio_completion_sweep() == 0) {
-        printf("[Rank 0] Barrido GPIO de finalizacion completado.\n");
-    } else {
-        printf("[Rank 0] No se pudo ejecutar el barrido GPIO.\n");
-    }
 
     printf("\n");
 
